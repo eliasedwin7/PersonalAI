@@ -90,11 +90,22 @@ class SettingsDialog(QDialog):
         self.limit_spin.setRange(500, 200_000)
         self.limit_spin.setValue(config.context_char_limit)
 
+        self.history_limit_spin = QSpinBox()
+        self.history_limit_spin.setRange(1000, 1_000_000)
+        self.history_limit_spin.setValue(config.history_char_limit)
+        self.history_limit_spin.setToolTip(
+            "How much conversation HISTORY gets sent per turn - the oldest "
+            "turns are dropped first once a session's transcript exceeds "
+            "this, so a long-running conversation doesn't eventually "
+            "overflow the model's real context window."
+        )
+
         form.addRow("General model:", self.general_edit)
         form.addRow("Story model:", self.story_edit)
         form.addRow("Code model:", self.code_edit)
         form.addRow("Vision model:", self.vision_edit)
         form.addRow("Context char limit:", self.limit_spin)
+        form.addRow("History char limit:", self.history_limit_spin)
 
         self.mic_combo = QComboBox()
         self.mic_combo.addItem("System default", None)
@@ -209,6 +220,7 @@ class SettingsDialog(QDialog):
         c.models["code"] = self.code_edit.currentText().strip() or c.models["code"]
         c.models["vision"] = self.vision_edit.currentText().strip() or c.models["vision"]
         c.context_char_limit = self.limit_spin.value()
+        c.history_char_limit = self.history_limit_spin.value()
         c.mic_device = self.mic_combo.currentData()
         c.whisper_model = self.whisper_combo.currentText()
 

@@ -41,14 +41,41 @@ class Conversation:
         self.messages.append(msg)
         return msg
 
-    def as_ollama_messages(self, system_prompt: str) -> list[dict]:
-        """The full turn history in Ollama's {role, content} shape, with
-        the task's system prompt prepended fresh each time (so editing a
+    def as_ollama_messages(self, system_prompt: str, char_limit: int | None = None) -> list[dict]:
+        """The turn history in Ollama's {role, content} shape, with the
+        task's system prompt prepended fresh each time (so editing a
         system prompt takes effect on old conversations too, rather than
-        being baked in at conversation-creation time)."""
+        being baked in at conversation-creation time).
+
+        `char_limit`, when given, drops the OLDEST turns first once the
+        history exceeds it - a long-running conversation would otherwise
+        send its entire transcript on every single turn forever, and
+        eventually exceed the model's real context window (silently
+        truncated or outright rejected, depending on the backend). None
+        means no trimming, matching the old unconditional behavior."""
+        turns = self.messages if char_limit is None else _trim_to_char_budget(
+            self.messages, char_limit)
         out = [{"role": "system", "content": system_prompt}]
-        out += [{"role": m.role, "content": m.content} for m in self.messages]
+        out += [{"role": m.role, "content": m.content} for m in turns]
         return out
+
+
+def _trim_to_char_budget(messages: list[Message], char_limit: int) -> list[Message]:
+    """Keeps as many of the MOST RECENT turns as fit under char_limit
+    (measured on message content only), dropping the oldest turns first
+    rather than truncating mid-message so every kept message still
+    reads as a complete thought. Always keeps at least the single most
+    recent message even if it alone exceeds the budget - a huge last
+    message shouldn't make the request disappear entirely."""
+    kept: list[Message] = []
+    total = 0
+    for msg in reversed(messages):
+        total += len(msg.content)
+        if total > char_limit and kept:
+            break
+        kept.append(msg)
+    kept.reverse()
+    return kept
 
 
 def safe_session_name(name: str) -> str:

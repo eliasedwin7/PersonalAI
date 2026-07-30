@@ -91,6 +91,23 @@ def test_send_includes_system_prompt_matching_task(tmp_path):
     assert messages[0] == {"role": "system", "content": SYSTEM_PROMPTS["story"]}
 
 
+def test_send_trims_history_to_configured_char_limit(tmp_path):
+    config = Config(history_char_limit=250)
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conv = service.store.load_or_create("general", "general")
+    conv.append("user", "a" * 100)
+    conv.append("assistant", "b" * 100)
+    service.store.save(conv)
+
+    service.send(conv, "c" * 100)
+
+    messages, _model = client.calls[0]
+    contents = [m["content"] for m in messages]
+    assert "a" * 100 not in contents  # oldest turn dropped once the budget's exceeded
+    assert "c" * 100 in contents      # the message just sent always survives
+
+
 def test_send_streams_tokens_when_callback_given(tmp_path):
     config = Config()
     client = FakeOllamaClient(reply="streamed")

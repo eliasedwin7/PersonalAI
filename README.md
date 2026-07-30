@@ -122,6 +122,7 @@ myai config set KEY VALUE          e.g. backend anthropic
                                     e.g. prompts.story "Always write in
                                     second person." (empty value resets
                                     that task to its built-in default)
+                                    e.g. history_char_limit 40000
 
 myai gui                           launch the desktop app (see also:
                                     Run-PersonalAI-GUI.bat, or build a
@@ -343,11 +344,17 @@ needing a real Ollama server running.
 - ✅ **Editable system prompts** — `myai config set prompts.<task> "..."`,
   or Settings' "System prompt (per task)" editor - override any task's
   default instructions without touching code; an empty value resets it.
+- ✅ **Long-conversation history trimming** — a session's full history
+  used to get resent on every single turn forever; past
+  `history_char_limit` (config or Settings), the oldest turns are
+  dropped first rather than eventually overflowing (or silently
+  truncating inside) the model's real context window. Nothing is
+  deleted from the saved conversation file - only what's SENT to the
+  model per turn is trimmed.
 - Possible next: a global hotkey for summoning PersonalAI from anywhere
-  without clicking the tray icon first; long-conversation context
-  trimming; drag-and-drop image attach in the Chat tab; a persistent
-  folder knowledge base (`myai index`); cross-session search;
-  conversation export.
+  without clicking the tray icon first; drag-and-drop image attach in
+  the Chat tab; a persistent folder knowledge base (`myai index`);
+  cross-session search; conversation export.
 
 ## A note on model choice
 

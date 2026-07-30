@@ -85,7 +85,8 @@ class ChatService:
         conversation.append("user", user_message)
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
-            system_prompt_for(conversation.task, self.config.system_prompts))
+            system_prompt_for(conversation.task, self.config.system_prompts),
+            char_limit=self.config.history_char_limit)
         reply = self.client.chat(messages, model, on_token=on_token)
         conversation.append("assistant", reply)
         self.store.save(conversation)
@@ -107,7 +108,8 @@ class ChatService:
         conversation.append("user", note)
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
-            system_prompt_for(conversation.task, self.config.system_prompts))
+            system_prompt_for(conversation.task, self.config.system_prompts),
+            char_limit=self.config.history_char_limit)
         reply = self.client.chat(messages, model, on_token=on_token, images=[image_b64])
         conversation.append("assistant", reply)
         self.store.save(conversation)

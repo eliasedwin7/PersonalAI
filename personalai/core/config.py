@@ -55,6 +55,11 @@ class Config:
                                                           # server, etc.
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
     context_char_limit: int = 12000  # rough guard on --context file size, see context_service.py
+    history_char_limit: int = 24000  # rough guard on how much conversation HISTORY gets sent
+                                       # per turn (oldest turns dropped first past this) - a
+                                       # long-running session would otherwise resend its entire
+                                       # transcript forever and eventually exceed the model's
+                                       # real context window; see Conversation.as_ollama_messages
     mic_device: int | None = None    # specific input device index (None = OS default -
                                        # some laptops' "default" mic endpoint is silent due to
                                        # driver routing, e.g. Realtek Smart Sound Technology;

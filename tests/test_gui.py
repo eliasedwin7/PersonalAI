@@ -102,9 +102,17 @@ def test_chat_tab_send_appends_transcript_and_saves(qtbot, chat_service, task_ru
 
     tab.input_edit.setPlainText("hello there")
     tab._send()
-    qtbot.waitUntil(lambda: "canned reply" in tab.transcript.toPlainText(), timeout=5000)
+    # Wait for _sending to clear, not just for the reply text to show up -
+    # _on_token (streaming) fires via a queued cross-thread signal BEFORE
+    # chat_service.send() has necessarily finished conversation.append()/
+    # store.save() on the worker thread, so "reply text visible" and
+    # "already saved to disk" are NOT the same moment. _sending only
+    # clears in _on_done(), which Qt only delivers after send() has fully
+    # returned - a real race this test used to lose intermittently in CI.
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
 
     assert "hello there" in tab.transcript.toPlainText()
+    assert "canned reply" in tab.transcript.toPlainText()
     reloaded = chat_service.store.load_or_create("general", "general")
     assert len(reloaded.messages) == 2
 
@@ -137,7 +145,7 @@ def test_chat_tab_attach_folder_stages_it_and_appends_on_send(
 
     tab.input_edit.setPlainText("continue")
     tab._send()
-    qtbot.waitUntil(lambda: "canned reply" in tab.transcript.toPlainText(), timeout=5000)
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)  # see comment in the test above
 
     conv = chat_service.store.load_or_create("general", "general")
     sent = conv.messages[0].content
@@ -448,7 +456,11 @@ def test_caption_tab_captions_a_chosen_image(qtbot, chat_service, task_runner, t
     tab.instruction_edit.setText("what is this?")
     tab._caption()
 
-    qtbot.waitUntil(lambda: "canned reply" in tab.output.toPlainText(), timeout=5000)
+    # Wait for _working to clear, not just for the reply text to show up -
+    # same cross-thread-signal-vs-store.save() race as ChatTab's send()
+    # tests above (see the comment on the first one).
+    qtbot.waitUntil(lambda: not tab._working, timeout=5000)
+    assert "canned reply" in tab.output.toPlainText()
     conv = chat_service.store.load_or_create("vision", "vision")
     assert "cat.png" in conv.messages[0].content
 
@@ -469,6 +481,21 @@ def test_settings_dialog_saves(qtbot, tmp_path):
     reloaded = ConfigStore(tmp_path / "config.json").load()
     assert reloaded.ollama_url == "http://192.168.1.50:11434"
     assert reloaded.model_for("code") == "deepseek-coder-v2"
+
+
+def test_settings_dialog_history_char_limit_saves(qtbot, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+
+    dialog.history_limit_spin.setValue(5000)
+    dialog._save()
+
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.history_char_limit == 5000
 
 
 def test_settings_dialog_backend_combo_saves(qtbot, tmp_path):

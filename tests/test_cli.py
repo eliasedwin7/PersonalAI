@@ -497,6 +497,25 @@ def test_config_set_prompts_empty_value_resets_to_default(isolated_home, capsys)
     assert "story    = (default)" in out
 
 
+def test_config_show_includes_history_char_limit(isolated_home, capsys):
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "history_char_limit  = 24000" in out
+
+
+def test_config_set_history_char_limit(isolated_home, capsys):
+    cli.main(["config", "set", "history_char_limit", "5000"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    assert "history_char_limit  = 5000" in capsys.readouterr().out
+
+
+def test_config_set_history_char_limit_rejects_non_number(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "history_char_limit", "not-a-number"])
+    assert exit_code == 1
+    assert "must be a number" in capsys.readouterr().err
+
+
 def test_agent_command_reports_missing_workspace(isolated_home, capsys):
     exit_code = cli.main(["agent", "do something"])
     assert exit_code == 1

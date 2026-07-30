@@ -478,6 +478,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"ollama_url          = {config.ollama_url}")
     print(f"openai_base_url     = {config.openai_base_url}")
     print(f"context_char_limit  = {config.context_char_limit}")
+    print(f"history_char_limit  = {config.history_char_limit}")
     print(f"mic_device          = {'default' if config.mic_device is None else config.mic_device}")
     print(f"whisper_model       = {config.whisper_model}")
     print(f"read_replies_aloud  = {config.read_replies_aloud}")
@@ -520,6 +521,12 @@ def cmd_config_set(args: argparse.Namespace) -> int:
             config.context_char_limit = int(value)
         except ValueError:
             print("context_char_limit must be a number.", file=sys.stderr)
+            return 1
+    elif key == "history_char_limit":
+        try:
+            config.history_char_limit = int(value)
+        except ValueError:
+            print("history_char_limit must be a number.", file=sys.stderr)
             return 1
     elif key == "mic_device":
         if value.lower() in ("default", "none", ""):
@@ -580,8 +587,8 @@ def cmd_config_set(args: argparse.Namespace) -> int:
             config.system_prompts[task] = value
     else:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
-              "context_char_limit, mic_device, whisper_model, read_replies_aloud, "
-              "agent_workspace, agent_mode, forge_url, image_save_dir, "
+              "context_char_limit, history_char_limit, mic_device, whisper_model, "
+              "read_replies_aloud, agent_workspace, agent_mode, forge_url, image_save_dir, "
               "models.general, models.story, models.code, models.vision, "
               "prompts.general, prompts.story, prompts.code, prompts.vision "
               "(empty prompts.<task> value resets to the default)", file=sys.stderr)
