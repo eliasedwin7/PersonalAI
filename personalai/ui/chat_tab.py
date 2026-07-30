@@ -257,7 +257,11 @@ class ChatTab(QWidget):
         transcript_view.append_body(self.transcript, token)
 
     def _on_done(self, _reply: str) -> None:
-        transcript_view.append_body(self.transcript, "\n\n")
+        # Re-render from the now-saved conversation instead of just
+        # appending "\n\n" to the raw streamed text - this replaces the
+        # plain-text streamed reply with a markdown-rendered one (code
+        # blocks, bold, lists, ...) now that the full message is known.
+        self._render_transcript()
         self._sending = False
         self.send_btn.setEnabled(True)
         self._reload_sessions()

@@ -245,6 +245,11 @@ needing a real Ollama server running.
 - ✅ **A real standalone .exe** — `Build-PersonalAI-Exe.ps1` packages the
   GUI as `PersonalAI.exe`, no conda/terminal needed to launch it. See
   [Building a standalone .exe](SETUP.md#building-a-standalone-exe).
+- ✅ **Markdown-rendered replies** — code blocks, bold, lists, etc. in an
+  assistant's reply render properly (Chat and Voice both) instead of
+  showing raw ```/**/- markup as literal text. Only applies to the
+  assistant's side - your own typed messages always show up exactly as
+  typed.
 - Possible next: a global hotkey for summoning PersonalAI from anywhere
   without clicking the tray icon first.
 

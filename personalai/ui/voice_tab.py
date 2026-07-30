@@ -254,7 +254,11 @@ class VoiceTab(QWidget):
         )
 
     def _on_reply(self, reply: str) -> None:
-        transcript_view.append_body(self.transcript, "\n\n")
+        # Re-render from the now-saved conversation instead of just
+        # appending "\n\n" - swaps the raw streamed text for a markdown-
+        # rendered reply (code blocks, bold, lists, ...) now that the
+        # full message is known.
+        transcript_view.render_transcript(self.transcript, self.conversation)
         if self.speak_check.isChecked() and voice_service.is_speech_available():
             self._set_state("speaking")
             self.task_runner.submit(
