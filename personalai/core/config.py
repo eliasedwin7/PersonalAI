@@ -55,7 +55,9 @@ class Config:
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
     context_char_limit: int = 12000  # rough guard on --context file size, see context_service.py
     whisper_model: str = "base.en"   # voice input model size, see services/voice_service.py
-    read_replies_aloud: bool = False  # GUI default for the "read aloud" checkbox
+    read_replies_aloud: bool = True   # Voice tab's "speak replies aloud" checkbox default -
+                                       # on by default since talking back is the point of that
+                                       # tab; uncheck it there to use voice input as dictation only
     window_geometry: str = ""        # base64 QByteArray from saveGeometry() - GUI only,
                                        # not QSettings/registry, so it lives in this same
                                        # human-readable config.json like everything else

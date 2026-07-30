@@ -223,36 +223,39 @@ def test_chat_input_edit_enter_sends_shift_enter_inserts_newline(qtbot):
     assert submitted == [True]
 
 
-def test_chat_tab_mic_button_disabled_when_voice_unavailable(
+def test_voice_tab_orb_disabled_when_recording_unavailable(
     qtbot, chat_service, task_runner, monkeypatch
 ):
     monkeypatch.setattr(voice_service, "is_recording_available", lambda: False)
     monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
 
-    from personalai.ui.chat_tab import ChatTab
+    from personalai.ui.voice_tab import VoiceTab
 
-    tab = ChatTab(chat_service, task_runner)
+    tab = VoiceTab(chat_service, task_runner)
     qtbot.addWidget(tab)
-    assert tab.mic_btn.isEnabled() is False
+    assert tab.orb.isEnabled() is False
 
 
-def test_chat_tab_read_aloud_checkbox_disabled_when_speech_unavailable(
+def test_voice_tab_speak_checkbox_disabled_when_speech_unavailable(
     qtbot, chat_service, task_runner, monkeypatch
 ):
     monkeypatch.setattr(voice_service, "is_speech_available", lambda: False)
 
-    from personalai.ui.chat_tab import ChatTab
+    from personalai.ui.voice_tab import VoiceTab
 
-    tab = ChatTab(chat_service, task_runner)
+    tab = VoiceTab(chat_service, task_runner)
     qtbot.addWidget(tab)
-    assert tab.read_aloud_check.isEnabled() is False
+    assert tab.speak_check.isEnabled() is False
 
 
-def test_chat_tab_recording_transcribes_into_input_box(
+def test_voice_tab_full_turn_transcribes_replies_and_speaks(
     qtbot, chat_service, task_runner, monkeypatch
 ):
+    """Covers the whole tap-to-talk loop: idle -> listening -> transcribing
+    -> thinking (reply streams in) -> speaking -> back to idle."""
     monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
     monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_speech_available", lambda: True)
 
     class FakeRecorder:
         def start(self_inner):
@@ -261,39 +264,41 @@ def test_chat_tab_recording_transcribes_into_input_box(
         def stop(self_inner):
             return b"fake-wav-bytes"
 
+    spoken = []
     monkeypatch.setattr(voice_service, "Recorder", FakeRecorder)
     monkeypatch.setattr(voice_service, "transcribe",
-                        lambda wav_bytes, model_size: "transcribed text")
+                        lambda wav_bytes, model_size: "what time is it")
+    monkeypatch.setattr(voice_service, "speak", lambda text: spoken.append(text))
 
-    from personalai.ui.chat_tab import ChatTab
+    from personalai.ui.voice_tab import VoiceTab
 
-    tab = ChatTab(chat_service, task_runner)
+    tab = VoiceTab(chat_service, task_runner)
     qtbot.addWidget(tab)
 
-    tab.mic_btn.click()  # start
-    assert tab.mic_btn.text() == "⏹"
-    tab.mic_btn.click()  # stop -> kicks off background transcription
+    tab.orb.clicked.emit()  # start listening
+    assert tab._state == "listening"
+    tab.orb.clicked.emit()  # stop -> transcribe -> reply -> speak
 
-    qtbot.waitUntil(lambda: tab.input_edit.toPlainText() == "transcribed text", timeout=5000)
-    assert tab.mic_btn.isEnabled() is True
-    assert tab.mic_btn.text() == "🎤"
+    qtbot.waitUntil(lambda: tab._state == "idle", timeout=5000)
+    assert "what time is it" in tab.transcript.toPlainText()
+    assert "canned reply" in tab.transcript.toPlainText()
+    assert spoken == ["canned reply"]
 
 
-def test_chat_tab_read_aloud_toggle_persists_via_config_store(
-    qtbot, chat_service, task_runner, tmp_path
+def test_voice_tab_speak_toggle_persists_via_config_store(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
 ):
+    monkeypatch.setattr(voice_service, "is_speech_available", lambda: True)
+
     from personalai.core.config import ConfigStore
-    from personalai.ui.chat_tab import ChatTab
+    from personalai.ui.voice_tab import VoiceTab
 
     store = ConfigStore(tmp_path / "config.json")
-    tab = ChatTab(chat_service, task_runner, config_store=store)
+    tab = VoiceTab(chat_service, task_runner, config_store=store)
     qtbot.addWidget(tab)
 
-    if not voice_service.is_speech_available():
-        pytest.skip("pyttsx3 not installed - checkbox is disabled by design")
-
-    tab.read_aloud_check.setChecked(True)
-    assert store.load().read_replies_aloud is True
+    tab.speak_check.setChecked(False)
+    assert store.load().read_replies_aloud is False
 
 
 def test_caption_tab_constructs(qtbot, chat_service, task_runner):
@@ -437,15 +442,16 @@ def test_settings_backend_switch_rebuilds_live_client(qtbot, chat_service, tmp_p
     assert isinstance(window.chat_service.client, AnthropicClient)
 
 
-def test_main_window_constructs_with_both_tabs(qtbot, chat_service, tmp_path):
+def test_main_window_constructs_with_all_tabs(qtbot, chat_service, tmp_path):
     from personalai.core.config import ConfigStore
     from personalai.ui.main_window import MainWindow
 
     window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
     qtbot.addWidget(window)
-    assert window.tabs.count() == 2
+    assert window.tabs.count() == 3
     assert window.tabs.tabText(0) == "Chat"
-    assert window.tabs.tabText(1) == "Caption Image"
+    assert window.tabs.tabText(1) == "Voice"
+    assert window.tabs.tabText(2) == "Caption Image"
 
 
 def test_main_window_remembers_geometry_across_restarts(

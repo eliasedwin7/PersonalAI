@@ -168,19 +168,22 @@ Or double-click **`Run-PersonalAI-GUI.bat`**, or build a real standalone
 `.exe` (see [Building a standalone .exe](#building-a-standalone-exe)
 below) if you couldn't find an executable to click.
 
-It has two tabs, both talking to the exact same settings and saved
+It has three tabs, all talking to the exact same settings and saved
 conversations as the CLI (a session started with `myai story` shows up
 in the GUI's session list, and vice versa):
 
-- **Chat** — a task dropdown (general/story/code), a list of saved
-  sessions on the left (right-click one to delete it), a colored
-  streaming transcript, and "Attach file…" / "Attach folder…" buttons
-  (same idea as `--context` on the command line — pick a file or a
-  whole folder and its content gets prepended to your next message;
-  attaching multiple times combines them). The input box is multi-line:
-  **Enter sends, Shift+Enter adds a new line** — handy for longer story
-  or code messages. See below for the 🎤 mic button and "Read replies
-  aloud" checkbox.
+- **Chat** — typing only, on purpose. A task dropdown (general/story/
+  code), a list of saved sessions on the left (right-click one to
+  delete it), a colored streaming transcript, and "Attach file…" /
+  "Attach folder…" buttons (same idea as `--context` on the command
+  line — pick a file or a whole folder and its content gets prepended
+  to your next message; attaching multiple times combines them). The
+  input box is multi-line: **Enter sends, Shift+Enter adds a new
+  line** — handy for longer story or code messages.
+- **Voice** — an actual talk-to-it assistant. Tap the pulsing orb, say
+  something, tap again to stop; it answers back both as text and out
+  loud. See [Voice input and reading replies aloud](#voice-input-and-reading-replies-aloud)
+  below.
 - **Caption Image** — choose an image, optionally type what you want to
   know about it, click "Caption it".
 
@@ -201,19 +204,28 @@ installs).
 
 ## Voice input and reading replies aloud
 
-Both directions are optional and fully local/offline - no audio is ever
-sent anywhere over the network. If either package below isn't
-installed, the corresponding control (mic button / "Read replies aloud"
-checkbox) just shows up disabled with a tooltip explaining why, instead
-of crashing anything.
+This lives in its own **Voice** tab, separate from Chat - a pulsing
+animated orb you tap to start and stop talking, rather than a mic
+button bolted onto a text box. Both directions are fully local/offline
+- no audio is ever sent anywhere over the network. If a package below
+isn't installed, the orb (or the "Speak replies aloud" checkbox) just
+shows up disabled with a tooltip explaining why, instead of crashing
+anything.
 
-**Talking instead of typing (🎤 button, in the Chat tab):**
-1. Click 🎤 — it turns into ⏹ and starts recording from your default
-   microphone.
-2. Say your message, then click ⏹ to stop.
-3. It transcribes locally (via `faster-whisper`, CPU-only) and drops the
-   text into the input box for you to review/edit — it does **not**
-   auto-send, so you can fix anything the transcription got wrong first.
+**One turn of a conversation:**
+1. Tap the orb — it turns red and starts recording from your default
+   microphone ("Listening…").
+2. Say what you want, then tap it again to stop.
+3. It transcribes locally (via `faster-whisper`, CPU-only), sends your
+   words to the assistant the same as typing them would, streams the
+   reply into the log below the orb ("Thinking…"), then speaks it back
+   out loud ("Speaking…") before returning to idle, ready for the next
+   turn.
+
+Nothing auto-sends anything you didn't actually say out loud, and the
+whole exchange - what you said and what it replied - stays visible as
+text in the log too, in case the transcription or the speech synthesis
+is hard to follow.
 
 The first recording after installing/switching model size downloads a
 small model from Hugging Face (~75-150MB depending on size, cached
@@ -222,10 +234,12 @@ Pick the size in **File → Settings… → Voice input model**:
 `tiny.en` (fastest, least accurate) / `base.en` (default, good balance)
 / `small.en` (slower, more accurate) — all English-only and CPU-friendly.
 
-**Reading replies aloud:** check "Read replies aloud" in the Chat tab.
-Uses `pyttsx3`, which drives Windows' own built-in text-to-speech
-(SAPI5) — no model download, no internet, whatever voice is set in
-Windows' own Speech settings.
+**Reading replies aloud** is on by default in the Voice tab (that's the
+point of it) — uncheck "Speak replies aloud" there if you'd rather use
+it as voice-to-text dictation without the spoken reply. Uses `pyttsx3`,
+which drives Windows' own built-in text-to-speech (SAPI5) — no model
+download, no internet, whatever voice is set in Windows' own Speech
+settings.
 
 If these packages didn't install automatically (older install, or a
 sandboxed/restricted environment where `sounddevice`'s microphone access
@@ -417,11 +431,11 @@ actually changed. In the GUI, switching backend in Settings rebuilds the
 live connection immediately on clicking OK; if something still looks
 off, restart `myai gui`.
 
-**The 🎤 mic button / "Read replies aloud" checkbox is greyed out**
+**The Voice tab's orb / "Speak replies aloud" checkbox is greyed out**
 The optional package behind it isn't installed - hover the control for a
-tooltip naming which one (`sounddevice` + `faster-whisper` for the mic,
-`pyttsx3` for read-aloud). Install it with `conda run -n personalai pip
-install <name>` and restart the GUI.
+tooltip naming which one (`sounddevice` + `faster-whisper` for the orb,
+`pyttsx3` for speaking replies). Install it with `conda run -n
+personalai pip install <name>` and restart the GUI.
 
 **Recording works but nothing gets transcribed, or it's very slow**
 The first transcription with a given voice model size downloads it from

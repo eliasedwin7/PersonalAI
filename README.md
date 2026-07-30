@@ -191,8 +191,8 @@ personalai/
     context_service.py      --context file/folder loading + truncation
     vision_service.py       image loading/encoding for the caption task
     voice_service.py        mic recording + local transcription (faster-
-                            whisper) + text-to-speech (pyttsx3), all
-                            lazily-imported/optional
+                            whisper) + text-to-speech (pyttsx3), used by
+                            the Voice tab; all lazily-imported/optional
   gui_main.py             bare GUI entry point (no argparse) - used by
                           the frozen .exe and Run-PersonalAI-GUI.bat
   ui/                     desktop GUI (`myai gui`) - a thin layer over
@@ -212,8 +212,9 @@ needing a real Ollama server running.
   context, per-task model config.
 - ✅ **Desktop GUI** (`myai gui`) — a window over the same
   `ChatService`/`ConversationStore`: a Chat tab (session list, task
-  picker, streaming transcript, file/folder context attach) and a
-  Caption Image tab (pick an image, ask about it, streamed description).
+  picker, streaming transcript, file/folder context attach), a Voice
+  tab (talk to it out loud), and a Caption Image tab (pick an image,
+  ask about it, streamed description).
 - ✅ **Vision/captioning mode** — `myai caption`, using an Ollama vision
   model (`llava` by default), independent of any specific project's
   tagging pipeline.
@@ -230,10 +231,11 @@ needing a real Ollama server running.
   (closing the window minimizes instead of quitting), remembered window
   size/position, and model pick-lists in Settings populated from what's
   actually pulled in Ollama.
-- ✅ **Voice input and reading replies aloud** — a push-to-talk 🎤
-  button (local transcription via faster-whisper, CPU-only) and a "read
-  replies aloud" checkbox (local TTS via Windows SAPI5/pyttsx3), both
-  fully offline. See
+- ✅ **A Voice tab you actually talk to** — tap a pulsing animated orb
+  to start talking, tap again to stop; it transcribes locally (faster-
+  whisper, CPU-only), sends it to the same assistant, and speaks the
+  reply back (local TTS via Windows SAPI5/pyttsx3) - all fully offline.
+  The Chat tab stays typing-only on purpose. See
   [Voice input and reading replies aloud](SETUP.md#voice-input-and-reading-replies-aloud).
 - ✅ **A real standalone .exe** — `Build-PersonalAI-Exe.ps1` packages the
   GUI as `PersonalAI.exe`, no conda/terminal needed to launch it. See

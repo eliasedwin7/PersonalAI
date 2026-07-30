@@ -157,7 +157,7 @@ def test_config_show_includes_voice_settings(isolated_home, capsys):
     cli.main(["config", "show"])
     out = capsys.readouterr().out
     assert "whisper_model       = base.en" in out
-    assert "read_replies_aloud  = False" in out
+    assert "read_replies_aloud  = True" in out
 
 
 def test_config_set_whisper_model(isolated_home, capsys):

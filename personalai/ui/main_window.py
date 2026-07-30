@@ -1,4 +1,4 @@
-"""Main window: two tabs (Chat, Caption Image) over the same
+"""Main window: three tabs (Chat, Voice, Caption Image) over the same
 ChatService/ConversationStore the CLI uses - a session started with
 `myai story` is visible here too, and vice versa.
 
@@ -34,6 +34,7 @@ from personalai.services.chat_service import ChatService
 from personalai.ui.caption_tab import CaptionTab
 from personalai.ui.chat_tab import ChatTab
 from personalai.ui.settings_dialog import SettingsDialog
+from personalai.ui.voice_tab import VoiceTab
 from personalai.ui.workers import TaskRunner
 
 HEALTH_INTERVAL_MS = 30_000
@@ -55,7 +56,8 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
-        self.tabs.addTab(ChatTab(chat_service, self.task_runner, config_store), "Chat")
+        self.tabs.addTab(ChatTab(chat_service, self.task_runner), "Chat")
+        self.tabs.addTab(VoiceTab(chat_service, self.task_runner, config_store), "Voice")
         self.tabs.addTab(CaptionTab(chat_service, self.task_runner), "Caption Image")
 
         self._build_menu()
