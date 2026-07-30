@@ -19,12 +19,17 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QDialog,
+    QHBoxLayout,
     QLabel,
+    QListWidget,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
+    QStackedWidget,
     QSystemTrayIcon,
-    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from personalai import __version__
@@ -33,9 +38,8 @@ from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
 from personalai.services.image_service import build_forge_client
 from personalai.ui.agent_tab import AgentTab
-from personalai.ui.caption_tab import CaptionTab
 from personalai.ui.chat_tab import ChatTab
-from personalai.ui.image_tab import ImageTab
+from personalai.ui.images_page import ImagesPage
 from personalai.ui.settings_dialog import SettingsDialog
 from personalai.ui.voice_tab import VoiceTab
 from personalai.ui.workers import TaskRunner
@@ -57,14 +61,7 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
         self._restore_geometry()
 
-        self.tabs = QTabWidget()
-        self.setCentralWidget(self.tabs)
-        self.tabs.addTab(ChatTab(chat_service, self.task_runner), "Chat")
-        self.tabs.addTab(VoiceTab(chat_service, self.task_runner, config_store), "Voice")
-        self.tabs.addTab(CaptionTab(chat_service, self.task_runner), "Caption Image")
-        self.tabs.addTab(AgentTab(chat_service, self.task_runner, config_store), "Agent")
-        self.image_tab = ImageTab(chat_service, self.task_runner)
-        self.tabs.addTab(self.image_tab, "Image")
+        self._build_workspace()
 
         self._build_menu()
 
@@ -79,6 +76,63 @@ class MainWindow(QMainWindow):
         self.tray: QSystemTrayIcon | None = None
         if QSystemTrayIcon.isSystemTrayAvailable():
             self._build_tray()
+
+    def _build_workspace(self) -> None:
+        shell = QWidget()
+        shell.setObjectName("workspaceShell")
+        shell_layout = QHBoxLayout(shell)
+        shell_layout.setContentsMargins(12, 12, 12, 12)
+        shell_layout.setSpacing(12)
+
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(8, 8, 8, 8)
+        brand = QLabel("PersonalAI")
+        brand.setObjectName("brand")
+        sidebar_layout.addWidget(brand)
+        self.navigation = QListWidget()
+        self.navigation.setObjectName("navigation")
+        self.navigation.addItems(["Chat", "Voice", "Images", "Agent"])
+        self.navigation.currentRowChanged.connect(self._select_page)
+        sidebar_layout.addWidget(self.navigation, stretch=1)
+        settings_button = QPushButton("Settings")
+        settings_button.clicked.connect(self._open_settings)
+        sidebar_layout.addWidget(settings_button)
+        shell_layout.addWidget(sidebar)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(6, 4, 6, 4)
+        header = QHBoxLayout()
+        self.page_title = QLabel("Chat")
+        self.page_title.setObjectName("workspaceTitle")
+        header.addWidget(self.page_title)
+        header.addStretch(1)
+        self.connection_label = QLabel("Checking connection")
+        self.connection_label.setObjectName("connectionStatus")
+        header.addWidget(self.connection_label)
+        content_layout.addLayout(header)
+
+        self.pages = QStackedWidget()
+        self.chat_tab = ChatTab(self.chat_service, self.task_runner)
+        self.voice_tab = VoiceTab(self.chat_service, self.task_runner, self.config_store)
+        self.images_page = ImagesPage(self.chat_service, self.task_runner)
+        self.caption_tab = self.images_page.caption_tab
+        self.image_tab = self.images_page.image_tab
+        self.agent_tab = AgentTab(self.chat_service, self.task_runner, self.config_store)
+        for page in (self.chat_tab, self.voice_tab, self.images_page, self.agent_tab):
+            self.pages.addWidget(page)
+        content_layout.addWidget(self.pages, stretch=1)
+        shell_layout.addWidget(content, stretch=1)
+        self.setCentralWidget(shell)
+        self.navigation.setCurrentRow(0)
+
+    def _select_page(self, index: int) -> None:
+        if index < 0:
+            return
+        self.pages.setCurrentIndex(index)
+        self.page_title.setText(self.navigation.item(index).text())
 
     # ---- window geometry (remembered across restarts) ----
 
@@ -130,6 +184,8 @@ class MainWindow(QMainWindow):
             # it so a backend switch (or a new URL/base_url) takes effect
             # immediately instead of needing an app restart.
             self.chat_service.client = build_llm_client(self.chat_service.config)
+            self.chat_tab._update_model_label()
+            self.voice_tab._refresh_microphones()
             self._check_health()
             # ImageTab keeps its own ForgeClient (independent of the
             # chat backend) - rebuild it too so a changed Forge URL
@@ -146,9 +202,15 @@ class MainWindow(QMainWindow):
         if online:
             self.status_label.setText(f"{backend}: ● online")
             self.status_label.setStyleSheet("color: #4ec94e;")
+            self.connection_label.setText(f"{backend}: online")
+            self.connection_label.setProperty("online", True)
         else:
             self.status_label.setText(f"{backend}: ● offline")
             self.status_label.setStyleSheet("color: #8c8c8c;")
+            self.connection_label.setText(f"{backend}: offline")
+            self.connection_label.setProperty("online", False)
+        self.connection_label.style().unpolish(self.connection_label)
+        self.connection_label.style().polish(self.connection_label)
 
     # ---- system tray ----
 

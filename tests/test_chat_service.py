@@ -37,6 +37,13 @@ def test_system_prompt_for_ignores_blank_override():
     assert system_prompt_for("story", {"story": ""}) == SYSTEM_PROMPTS["story"]
 
 
+def test_system_prompt_for_appends_user_approved_memory():
+    prompt = system_prompt_for("general", assistant_memory="My name is Edwin. I prefer concise answers.")
+    assert prompt.startswith(SYSTEM_PROMPTS["general"])
+    assert "User-approved personal context:" in prompt
+    assert "My name is Edwin." in prompt
+
+
 def test_send_uses_configured_system_prompt_override(tmp_path):
     config = Config(system_prompts={"story": "Always write in second person."})
     client = FakeOllamaClient()
@@ -117,6 +124,34 @@ def test_send_streams_tokens_when_callback_given(tmp_path):
     seen = []
     service.send(conv, "hi", on_token=seen.append)
     assert seen == ["streamed"]
+
+
+def test_regenerate_replaces_only_the_latest_text_reply(tmp_path):
+    config = Config()
+    client = FakeOllamaClient(reply="first reply")
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conv = service.store.load_or_create("general", "general")
+    service.send(conv, "hello")
+
+    service.discard_last_reply(conv)
+    assert [message.role for message in conv.messages] == ["user"]
+
+    client.reply = "second reply"
+    assert service.regenerate(conv) == "second reply"
+    assert [message.content for message in conv.messages] == ["hello", "second reply"]
+
+
+def test_regenerate_refuses_image_turns(tmp_path):
+    config = Config()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=FakeOllamaClient())
+    conv = service.store.load_or_create("general", "general")
+    conv.append("user", "[image: photo.png] describe it")
+    conv.append("assistant", "A photo")
+
+    from personalai.core.errors import UserFacingError
+
+    with pytest.raises(UserFacingError, match="Image replies"):
+        service.discard_last_reply(conv)
 
 
 def test_send_with_image_persists_text_note_not_raw_bytes(tmp_path):

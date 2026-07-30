@@ -8,6 +8,7 @@ def test_default_config_has_all_tasks():
     for task in ("general", "story", "code"):
         assert config.model_for(task) == DEFAULT_MODELS[task]
     assert config.airllm_max_new_tokens == 512
+    assert config.assistant_memory == ""
 
 
 def test_model_for_unknown_task_falls_back_to_general():
@@ -21,12 +22,14 @@ def test_round_trip(tmp_path):
     config.ollama_url = "http://192.168.1.50:11434"
     config.models["story"] = "mixtral"
     config.context_char_limit = 5000
+    config.assistant_memory = "Prefers Australian English."
     store.save(config)
 
     reloaded = ConfigStore(tmp_path / "config.json").load()
     assert reloaded.ollama_url == "http://192.168.1.50:11434"
     assert reloaded.model_for("story") == "mixtral"
     assert reloaded.context_char_limit == 5000
+    assert reloaded.assistant_memory == "Prefers Australian English."
     # untouched tasks keep their defaults after a partial models dict is saved
     assert reloaded.model_for("code") == DEFAULT_MODELS["code"]
 

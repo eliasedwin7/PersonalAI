@@ -117,6 +117,23 @@ def test_chat_tab_send_appends_transcript_and_saves(qtbot, chat_service, task_ru
     assert len(reloaded.messages) == 2
 
 
+def test_chat_tab_regenerate_replaces_latest_reply(qtbot, chat_service, task_runner):
+    from personalai.ui.chat_tab import ChatTab
+
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.input_edit.setPlainText("hello")
+    tab._send()
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
+
+    chat_service.client.reply = "fresh reply"
+    tab._regenerate()
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
+
+    assert "fresh reply" in tab.transcript.toPlainText()
+    assert [message.content for message in tab.conversation.messages] == ["hello", "fresh reply"]
+
+
 def test_chat_tab_attach_folder_stages_it_and_appends_on_send(
     qtbot, chat_service, task_runner, tmp_path, monkeypatch
 ):
@@ -449,6 +466,39 @@ def test_voice_tab_speak_toggle_persists_via_config_store(
     assert store.load().read_replies_aloud is False
 
 
+def test_voice_tab_microphone_picker_persists_selected_device(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.voice_tab import VoiceTab
+
+    monkeypatch.setattr(
+        voice_service,
+        "list_input_devices_detailed",
+        lambda: [(9, "Working Mic", True), (14, "Other Mic", False)],
+    )
+    store = ConfigStore(tmp_path / "config.json")
+    tab = VoiceTab(chat_service, task_runner, config_store=store)
+    qtbot.addWidget(tab)
+
+    tab.mic_combo.setCurrentIndex(2)
+    assert chat_service.config.mic_device == 14
+    assert store.load().mic_device == 14
+
+
+def test_voice_tab_microphone_test_explains_silent_and_live_results(qtbot, chat_service, task_runner):
+    from personalai.ui.voice_tab import VoiceTab
+
+    tab = VoiceTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._on_microphone_tested((0.0, []))
+    assert "No usable microphone signal" in tab.status_label.text()
+
+    tab._on_microphone_tested((500.0, [500.0]))
+    assert "receiving sound" in tab.status_label.text()
+    assert tab.level_bar.value() > 0
+
+
 def test_caption_tab_constructs(qtbot, chat_service, task_runner):
     from personalai.ui.caption_tab import CaptionTab
 
@@ -726,18 +776,18 @@ def test_settings_backend_switch_rebuilds_live_client(qtbot, chat_service, tmp_p
     assert isinstance(window.chat_service.client, AnthropicClient)
 
 
-def test_main_window_constructs_with_all_tabs(qtbot, chat_service, tmp_path):
+def test_main_window_constructs_with_focused_workspaces(qtbot, chat_service, tmp_path):
     from personalai.core.config import ConfigStore
     from personalai.ui.main_window import MainWindow
 
     window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
     qtbot.addWidget(window)
-    assert window.tabs.count() == 5
-    assert window.tabs.tabText(0) == "Chat"
-    assert window.tabs.tabText(1) == "Voice"
-    assert window.tabs.tabText(2) == "Caption Image"
-    assert window.tabs.tabText(3) == "Agent"
-    assert window.tabs.tabText(4) == "Image"
+    assert window.pages.count() == 4
+    assert [window.navigation.item(i).text() for i in range(window.navigation.count())] == [
+        "Chat", "Voice", "Images", "Agent"
+    ]
+    assert window.images_page.tabs.tabText(0) == "Describe"
+    assert window.images_page.tabs.tabText(1) == "Generate"
 
 
 def test_main_window_remembers_geometry_across_restarts(

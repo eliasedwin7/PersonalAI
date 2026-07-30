@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -79,6 +80,10 @@ class ChatTab(QWidget):
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.addWidget(QLabel("Sessions"))
+        self.session_search = QLineEdit()
+        self.session_search.setPlaceholderText("Search sessions")
+        self.session_search.textChanged.connect(self._filter_sessions)
+        left_layout.addWidget(self.session_search)
         self.session_list = QListWidget()
         self.session_list.itemClicked.connect(self._on_session_selected)
         self.session_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -87,6 +92,9 @@ class ChatTab(QWidget):
         new_btn = QPushButton("New session…")
         new_btn.clicked.connect(self._new_session)
         left_layout.addWidget(new_btn)
+        clear_session_btn = QPushButton("Clear current session")
+        clear_session_btn.clicked.connect(self._clear_current_session)
+        left_layout.addWidget(clear_session_btn)
         splitter.addWidget(left)
 
         right = QWidget()
@@ -97,6 +105,9 @@ class ChatTab(QWidget):
         self.task_combo.addItems(list(TEXT_TASKS))
         self.task_combo.currentTextChanged.connect(self._on_task_changed)
         top_row.addWidget(self.task_combo)
+        self.model_label = QLabel()
+        self.model_label.setObjectName("mutedLabel")
+        top_row.addWidget(self.model_label)
         top_row.addStretch(1)
 
         self.context_label = QLabel("no context files")
@@ -134,6 +145,9 @@ class ChatTab(QWidget):
         clear_image_btn = QPushButton("Clear image")
         clear_image_btn.clicked.connect(self._clear_image)
         image_row.addWidget(clear_image_btn)
+        clear_context_btn = QPushButton("Clear context")
+        clear_context_btn.clicked.connect(self._clear_context)
+        image_row.addWidget(clear_context_btn)
         right_layout.addLayout(image_row)
 
         self.transcript = QTextEdit()
@@ -152,6 +166,10 @@ class ChatTab(QWidget):
         self.send_btn = QPushButton("Send")
         self.send_btn.clicked.connect(self._send)
         input_row.addWidget(self.send_btn)
+        self.regenerate_btn = QPushButton("Regenerate")
+        self.regenerate_btn.setToolTip("Generate a new response to the most recent text message.")
+        self.regenerate_btn.clicked.connect(self._regenerate)
+        input_row.addWidget(self.regenerate_btn)
         right_layout.addLayout(input_row)
 
         splitter.addWidget(right)
@@ -167,11 +185,19 @@ class ChatTab(QWidget):
         """Only list sessions belonging to the CURRENTLY selected task -
         a caption-tab "vision" session shouldn't show up under Story, and
         clicking it there would silently mix system prompts."""
-        self.session_list.clear()
         current_task = self.task_combo.currentText()
+        self._session_names: list[str] = []
         for name in self.chat_service.store.list_all():
             conv = self.chat_service.store.load_or_create(name, current_task)
             if conv.task == current_task:
+                self._session_names.append(name)
+        self._filter_sessions(self.session_search.text())
+
+    def _filter_sessions(self, query: str) -> None:
+        query = query.strip().lower()
+        self.session_list.clear()
+        for name in getattr(self, "_session_names", []):
+            if not query or query in name.lower():
                 self.session_list.addItem(QListWidgetItem(name))
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
@@ -210,6 +236,21 @@ class ChatTab(QWidget):
         self._reload_sessions()
         self._render_transcript()
 
+    def _clear_current_session(self) -> None:
+        if self.conversation is None or not self.conversation.messages:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Clear session",
+            f"Clear every message in '{self.conversation.name}'? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.conversation.messages.clear()
+        self.chat_service.store.save(self.conversation)
+        self._render_transcript()
+
     def _on_task_changed(self, task: str) -> None:
         self._reload_sessions()
         self._load_session(task)
@@ -221,6 +262,22 @@ class ChatTab(QWidget):
 
     def _render_transcript(self) -> None:
         transcript_view.render_transcript(self.transcript, self.conversation)
+        self._update_model_label()
+        self.regenerate_btn.setEnabled(self._can_regenerate())
+
+    def _update_model_label(self) -> None:
+        model = self.chat_service.config.model_for(self.task_combo.currentText())
+        self.model_label.setText(f"Model: {model}")
+
+    def _can_regenerate(self) -> bool:
+        if self._sending or self.conversation is None or len(self.conversation.messages) < 2:
+            return False
+        reply, request = self.conversation.messages[-1], self.conversation.messages[-2]
+        return (
+            reply.role == "assistant"
+            and request.role == "user"
+            and not request.content.startswith("[image:")
+        )
 
     # ---- context ----
 
@@ -240,6 +297,10 @@ class ChatTab(QWidget):
         self.context_paths.extend(paths)
         names = ", ".join(Path(p).name for p in self.context_paths)
         self.context_label.setText(f"context: {names}")
+
+    def _clear_context(self) -> None:
+        self.context_paths = []
+        self.context_label.setText("no context files")
 
     # ---- image attach (button or drag-and-drop) ----
 
@@ -319,8 +380,7 @@ class ChatTab(QWidget):
         display_text = (
             text if image_path is None else f"[image: {image_path.name}] {message}".strip()
         )
-        self.context_paths = []
-        self.context_label.setText("no context files")
+        self._clear_context()
         self._clear_image()
 
         self.input_edit.clear()
@@ -329,6 +389,7 @@ class ChatTab(QWidget):
         transcript_view.append_role_label(self.transcript, "assistant")
         self._sending = True
         self.send_btn.setEnabled(False)
+        self.regenerate_btn.setEnabled(False)
 
         if image_path is None:
             self.task_runner.submit(
@@ -362,3 +423,24 @@ class ChatTab(QWidget):
         transcript_view.append_body(self.transcript, f"\n[error] {exc}\n\n")
         self._sending = False
         self.send_btn.setEnabled(True)
+        self.regenerate_btn.setEnabled(self._can_regenerate())
+
+    def _regenerate(self) -> None:
+        if not self._can_regenerate() or self.conversation is None:
+            return
+        try:
+            self.chat_service.discard_last_reply(self.conversation)
+        except PersonalAIError as exc:
+            QMessageBox.warning(self, "Regenerate", str(exc))
+            return
+        self._render_transcript()
+        transcript_view.append_role_label(self.transcript, "assistant")
+        self._sending = True
+        self.send_btn.setEnabled(False)
+        self.regenerate_btn.setEnabled(False)
+        self.task_runner.submit(
+            self.chat_service.regenerate, self.conversation,
+            on_progress=self._on_token,
+            on_result=self._on_done,
+            on_error=self._on_error,
+        )

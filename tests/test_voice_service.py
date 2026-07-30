@@ -167,6 +167,24 @@ def test_recorder_default_device_is_none(monkeypatch):
     assert _FakeStream.instances[-1].device is None
 
 
+def test_recorder_surfaces_portaudio_start_error_as_user_facing(monkeypatch):
+    fake_sd = types.ModuleType("sounddevice")
+
+    class FakePortAudioError(Exception):
+        pass
+
+    class BrokenStream:
+        def __init__(self, *args, **kwargs):
+            raise FakePortAudioError("device unavailable")
+
+    fake_sd.PortAudioError = FakePortAudioError
+    fake_sd.InputStream = BrokenStream
+    monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
+
+    with pytest.raises(VoiceUnavailable, match="Could not open"):
+        voice_service.Recorder(device=9).start()
+
+
 # ---- silence detection (fixes the "always hallucinates 'you'" bug) ----
 #
 # _on_chunk() is the pure logic behind heard_speech()/should_auto_stop()/

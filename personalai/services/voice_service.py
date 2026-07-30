@@ -110,6 +110,7 @@ class Recorder:
         self._noise_floor: float = 0.0
         self._heard_speech = False
         self._peak_rms: float = 0.0
+        self._last_rms: float = 0.0
         self._silence_started_at: float | None = None
         self._started_at: float = 0.0
 
@@ -131,6 +132,7 @@ class Recorder:
         self._noise_floor = 0.0
         self._heard_speech = False
         self._peak_rms = 0.0
+        self._last_rms = 0.0
         self._silence_started_at = None
         self._started_at = time.monotonic()
 
@@ -138,11 +140,17 @@ class Recorder:
             self._frames.append(indata.copy())
             self._on_chunk(indata)
 
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=_callback,
-            device=self._device,
-        )
-        self._stream.start()
+        portaudio_error = getattr(sd, "PortAudioError", OSError)
+        try:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=_callback,
+                device=self._device,
+            )
+            self._stream.start()
+        except (portaudio_error, OSError, ValueError) as exc:
+            self._stream = None
+            device = "the system default microphone" if self._device is None else f"microphone [{self._device}]"
+            raise VoiceUnavailable(f"Could not open {device}: {exc}") from exc
 
     def _on_chunk(self, chunk) -> None:
         """Runs on sounddevice's audio thread for every captured chunk -
@@ -151,6 +159,7 @@ class Recorder:
 
         rms = float(np.sqrt(np.mean(chunk.astype("float64") ** 2)))
         now = time.monotonic()
+        self._last_rms = rms
         self._peak_rms = max(self._peak_rms, rms)
 
         speech_threshold = self._noise_floor * SILENCE_RMS_MULTIPLIER + SILENCE_RMS_FLOOR
@@ -181,6 +190,10 @@ class Recorder:
         sensitivity tuning instead."""
         return self._peak_rms
 
+    def last_rms(self) -> float:
+        """The most recent input level, for a live UI meter while recording."""
+        return self._last_rms
+
     def should_auto_stop(self) -> bool:
         """Call periodically (e.g. from a GUI-thread timer) while
         recording - True once trailing silence (or the hard time cap)
@@ -200,8 +213,11 @@ class Recorder:
         a (silent) empty-length WAV rather than raising."""
         if self._stream is None:
             raise VoiceUnavailable("Recording was never started.")
-        self._stream.stop()
-        self._stream.close()
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except (OSError, ValueError) as exc:
+            raise VoiceUnavailable(f"Microphone capture ended unexpectedly: {exc}") from exc
         self._stream = None
 
         import numpy as np

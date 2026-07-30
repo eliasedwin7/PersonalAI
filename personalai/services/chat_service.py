@@ -15,6 +15,7 @@ from pathlib import Path
 
 from personalai.core.config import Config
 from personalai.core.conversation import Conversation, ConversationStore
+from personalai.core.errors import UserFacingError
 from personalai.services import vision_service
 from personalai.services.ollama_client import OllamaClient
 
@@ -59,13 +60,19 @@ DEFAULT_TASK = "general"
 VISION_TASK = "vision"
 
 
-def system_prompt_for(task: str, overrides: dict[str, str] | None = None) -> str:
+def system_prompt_for(
+    task: str,
+    overrides: dict[str, str] | None = None,
+    assistant_memory: str = "",
+) -> str:
     """`overrides` is Config.system_prompts - a user-edited prompt for a
     task takes priority over the built-in default; a task absent (or
     blank) there just falls through to SYSTEM_PROMPTS as before."""
-    if overrides and overrides.get(task):
-        return overrides[task]
-    return SYSTEM_PROMPTS.get(task, SYSTEM_PROMPTS[DEFAULT_TASK])
+    prompt = (overrides or {}).get(task) or SYSTEM_PROMPTS.get(task, SYSTEM_PROMPTS[DEFAULT_TASK])
+    memory = assistant_memory.strip()
+    if not memory:
+        return prompt
+    return f"{prompt}\n\nUser-approved personal context:\n{memory}"
 
 
 @dataclass
@@ -85,7 +92,9 @@ class ChatService:
         conversation.append("user", user_message)
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
-            system_prompt_for(conversation.task, self.config.system_prompts),
+            system_prompt_for(
+                conversation.task, self.config.system_prompts, self.config.assistant_memory
+            ),
             char_limit=self.config.history_char_limit)
         reply = self.client.chat(messages, model, on_token=on_token)
         conversation.append("assistant", reply)
@@ -108,9 +117,48 @@ class ChatService:
         conversation.append("user", note)
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
-            system_prompt_for(conversation.task, self.config.system_prompts),
+            system_prompt_for(
+                conversation.task, self.config.system_prompts, self.config.assistant_memory
+            ),
             char_limit=self.config.history_char_limit)
         reply = self.client.chat(messages, model, on_token=on_token, images=[image_b64])
+        conversation.append("assistant", reply)
+        self.store.save(conversation)
+        return reply
+
+    def discard_last_reply(self, conversation: Conversation) -> None:
+        """Remove the latest text-only assistant reply before regenerating it.
+
+        Image turns cannot be regenerated because the image bytes are intentionally
+        never persisted in conversation JSON, so resending would silently change
+        what the model sees.
+        """
+        if len(conversation.messages) < 2:
+            raise UserFacingError("There is no reply to regenerate yet.")
+        reply, request = conversation.messages[-1], conversation.messages[-2]
+        if reply.role != "assistant" or request.role != "user":
+            raise UserFacingError("Only the latest assistant reply can be regenerated.")
+        if request.content.startswith("[image:"):
+            raise UserFacingError("Image replies cannot be regenerated after the image is cleared.")
+        conversation.messages.pop()
+        self.store.save(conversation)
+
+    def regenerate(
+        self,
+        conversation: Conversation,
+        on_token: Callable[[str], None] | None = None,
+    ) -> str:
+        """Generate a fresh reply to the already-saved final user message."""
+        if not conversation.messages or conversation.messages[-1].role != "user":
+            raise UserFacingError("There is no user message ready to regenerate.")
+        model = self.config.model_for(conversation.task)
+        messages = conversation.as_ollama_messages(
+            system_prompt_for(
+                conversation.task, self.config.system_prompts, self.config.assistant_memory
+            ),
+            char_limit=self.config.history_char_limit,
+        )
+        reply = self.client.chat(messages, model, on_token=on_token)
         conversation.append("assistant", reply)
         self.store.save(conversation)
         return reply

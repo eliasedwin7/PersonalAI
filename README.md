@@ -51,6 +51,13 @@ management, all a window on top of the exact same
 `ChatService`/`ConversationStore` the CLI uses, so a session started
 with `myai story` shows up there too, and vice versa.
 
+The desktop workspace groups work into Chat, Voice, Images, and Agent.
+Voice includes a microphone picker, live input level, and a short device
+test so a silent or incorrectly routed Windows device is visible before
+transcription starts. Chat has session search, safe response regeneration,
+and an editable personal-memory field in Settings. Personal memory is only
+what you explicitly type; it is never inferred from conversations.
+
 ## Quick start
 
 ```powershell
@@ -115,6 +122,7 @@ myai config set KEY VALUE          e.g. backend anthropic
                                     e.g. ollama_url http://192.168.1.50:11434
                                     e.g. openai_base_url https://my-proxy.example/v1
                                     e.g. airllm_max_new_tokens 512
+                                    e.g. assistant_memory "I prefer concise answers."
                                     e.g. whisper_model small.en
                                     e.g. read_replies_aloud true
                                     e.g. agent_workspace C:\path\to\project

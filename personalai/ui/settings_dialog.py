@@ -146,6 +146,14 @@ class SettingsDialog(QDialog):
         form.addRow("Voice input model:", self.whisper_combo)
         layout.addLayout(form)
 
+        layout.addWidget(QLabel("Personal memory (sent with every assistant request):"))
+        self.memory_edit = QPlainTextEdit(config.assistant_memory)
+        self.memory_edit.setPlaceholderText(
+            "Preferences, ongoing projects, names, or facts you want the assistant to remember"
+        )
+        self.memory_edit.setMaximumHeight(90)
+        layout.addWidget(self.memory_edit)
+
         layout.addWidget(QLabel("System prompt (per task):"))
         prompt_task_row = QHBoxLayout()
         prompt_task_row.addWidget(QLabel("Task:"))
@@ -234,6 +242,7 @@ class SettingsDialog(QDialog):
         c.history_char_limit = self.history_limit_spin.value()
         c.mic_device = self.mic_combo.currentData()
         c.whisper_model = self.whisper_combo.currentText()
+        c.assistant_memory = self.memory_edit.toPlainText().strip()
 
         # Capture whatever's on screen right now for the currently-shown
         # task (the combo's currentTextChanged handler only captures a

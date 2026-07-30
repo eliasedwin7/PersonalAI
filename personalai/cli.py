@@ -484,6 +484,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"mic_device          = {'default' if config.mic_device is None else config.mic_device}")
     print(f"whisper_model       = {config.whisper_model}")
     print(f"read_replies_aloud  = {config.read_replies_aloud}")
+    print(f"assistant_memory    = {config.assistant_memory or '(not set)'}")
     print(f"agent_workspace     = {config.agent_workspace or '(not set)'}")
     print(f"agent_mode          = {config.agent_mode}")
     print(f"forge_url           = {config.forge_url}")
@@ -553,6 +554,8 @@ def cmd_config_set(args: argparse.Namespace) -> int:
                   f"{', '.join(WHISPER_MODEL_SIZES)}).", file=sys.stderr)
             return 1
         config.whisper_model = value
+    elif key == "assistant_memory":
+        config.assistant_memory = value.strip()
     elif key == "read_replies_aloud":
         if value.lower() not in ("true", "false"):
             print("read_replies_aloud must be 'true' or 'false'.", file=sys.stderr)
@@ -597,6 +600,7 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
               "airllm_max_new_tokens, context_char_limit, history_char_limit, "
               "mic_device, whisper_model, read_replies_aloud, agent_workspace, "
+              "assistant_memory, "
               "agent_mode, forge_url, image_save_dir, models.general, models.story, "
               "models.code, models.vision, "
               "prompts.general, prompts.story, prompts.code, prompts.vision "

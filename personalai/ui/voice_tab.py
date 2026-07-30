@@ -17,9 +17,12 @@ from PySide6.QtCore import QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QRadialGradient
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
+    QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -58,6 +61,7 @@ STATE_LABELS = {
     "speaking": "Speaking…",
 }
 SILENCE_POLL_MS = 150
+INPUT_LEVEL_FULL_SCALE = 1_200.0
 
 
 class VoiceOrb(QWidget):
@@ -132,6 +136,37 @@ class VoiceTab(QWidget):
         self._silence_timer.timeout.connect(self._check_auto_stop)
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        title = QLabel("Voice conversation")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+
+        device_row = QHBoxLayout()
+        device_row.addWidget(QLabel("Microphone:"))
+        self.mic_combo = QComboBox()
+        self.mic_combo.setToolTip("Choose the microphone PersonalAI should listen to.")
+        device_row.addWidget(self.mic_combo, stretch=1)
+        self.refresh_mics_btn = QPushButton("Refresh")
+        self.refresh_mics_btn.clicked.connect(self._refresh_microphones)
+        device_row.addWidget(self.refresh_mics_btn)
+        self.test_mic_btn = QPushButton("Test microphone")
+        self.test_mic_btn.setToolTip("Records a short sample and shows whether this device receives sound.")
+        self.test_mic_btn.clicked.connect(self._test_microphone)
+        device_row.addWidget(self.test_mic_btn)
+        layout.addLayout(device_row)
+
+        level_row = QHBoxLayout()
+        self.level_label = QLabel("Input level")
+        level_row.addWidget(self.level_label)
+        self.level_bar = QProgressBar()
+        self.level_bar.setRange(0, 100)
+        self.level_bar.setValue(0)
+        self.level_bar.setTextVisible(False)
+        self.level_bar.setToolTip("Live microphone input level while listening.")
+        level_row.addWidget(self.level_bar, stretch=1)
+        layout.addLayout(level_row)
+
         layout.addStretch(1)
 
         orb_row = QHBoxLayout()
@@ -169,6 +204,10 @@ class VoiceTab(QWidget):
                 and voice_service.is_transcription_available()):
             self.orb.setEnabled(False)
             self.status_label.setText("Needs the 'sounddevice' and 'faster-whisper' packages")
+            self.test_mic_btn.setEnabled(False)
+
+        self._refresh_microphones()
+        self.mic_combo.currentIndexChanged.connect(self._on_microphone_changed)
 
         transcript_view.render_transcript(self.transcript, self.conversation)
 
@@ -197,19 +236,31 @@ class VoiceTab(QWidget):
             QMessageBox.warning(self, "Voice", str(exc))
             return
         self._set_state("listening")
+        self.test_mic_btn.setEnabled(False)
         self._silence_timer.start()
 
     def _check_auto_stop(self) -> None:
         """Polled from the GUI thread (not the audio callback thread,
         which can't safely touch Qt) - stop on its own once the
         Recorder reports enough trailing silence, no manual tap needed."""
-        if self._recorder is not None and self._recorder.should_auto_stop():
+        if self._recorder is None:
+            return
+        self._update_live_level()
+        if self._recorder.should_auto_stop():
             self._stop_listening()
 
     def _stop_listening(self) -> None:
         self._silence_timer.stop()
         recorder, self._recorder = self._recorder, None
-        wav_bytes = recorder.stop()
+        if recorder is None:
+            return
+        self.test_mic_btn.setEnabled(True)
+        self.level_bar.setValue(0)
+        try:
+            wav_bytes = recorder.stop()
+        except PersonalAIError as exc:
+            self._on_error(exc)
+            return
 
         if not recorder.heard_speech():
             # Never hand faster-whisper pure silence - that's exactly what
@@ -271,7 +322,63 @@ class VoiceTab(QWidget):
 
     def _on_error(self, exc: BaseException) -> None:
         self._set_state("idle")
+        self.test_mic_btn.setEnabled(self.orb.isEnabled())
         QMessageBox.warning(self, "Voice", str(exc))
+
+    # ---- microphone diagnostics ----
+
+    def _refresh_microphones(self) -> None:
+        selected = self.chat_service.config.mic_device
+        self.mic_combo.blockSignals(True)
+        self.mic_combo.clear()
+        self.mic_combo.addItem("System default", None)
+        for index, name, is_default in voice_service.list_input_devices_detailed():
+            label = f"[{index}] {name}" + (" (default)" if is_default else "")
+            self.mic_combo.addItem(label, index)
+        chosen = self.mic_combo.findData(selected)
+        self.mic_combo.setCurrentIndex(max(chosen, 0))
+        self.mic_combo.blockSignals(False)
+
+    def _on_microphone_changed(self, _index: int) -> None:
+        self.chat_service.config.mic_device = self.mic_combo.currentData()
+        if self.config_store is not None:
+            self.config_store.save(self.chat_service.config)
+
+    def _test_microphone(self) -> None:
+        if self._state != "idle":
+            return
+        device = self.mic_combo.currentData()
+        self.test_mic_btn.setEnabled(False)
+        self.status_label.setText("Testing microphone - speak normally...")
+        self.task_runner.submit(
+            voice_service.mic_level_test, 3.0, device,
+            on_result=self._on_microphone_tested,
+            on_error=self._on_microphone_test_error,
+        )
+
+    def _on_microphone_tested(self, result: tuple[float, list[float]]) -> None:
+        peak, _levels = result
+        self.test_mic_btn.setEnabled(self.orb.isEnabled())
+        self._set_level(peak)
+        if peak < 80:
+            self.status_label.setText(
+                "No usable microphone signal. Choose another device and test again."
+            )
+        else:
+            self.status_label.setText(f"Microphone is receiving sound (peak level: {peak:.0f}).")
+
+    def _on_microphone_test_error(self, exc: BaseException) -> None:
+        self.test_mic_btn.setEnabled(self.orb.isEnabled())
+        self.status_label.setText(f"Microphone test failed: {exc}")
+
+    def _update_live_level(self) -> None:
+        if self._recorder is not None:
+            self._set_level(getattr(self._recorder, "last_rms", lambda: 0.0)())
+
+    def _set_level(self, rms: float) -> None:
+        percent = min(100, max(0, round(rms / INPUT_LEVEL_FULL_SCALE * 100)))
+        self.level_bar.setValue(percent)
+        self.level_label.setText(f"Input level: {rms:.0f}")
 
     # ---- options ----
 

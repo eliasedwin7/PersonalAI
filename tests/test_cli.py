@@ -174,6 +174,13 @@ def test_config_show_includes_voice_settings(isolated_home, capsys):
     assert "read_replies_aloud  = True" in out
 
 
+def test_config_set_assistant_memory(isolated_home, capsys):
+    cli.main(["config", "set", "assistant_memory", "Call me Edwin."])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    assert "assistant_memory    = Call me Edwin." in capsys.readouterr().out
+
+
 def test_config_set_mic_device(isolated_home, capsys):
     cli.main(["config", "set", "mic_device", "15"])
     capsys.readouterr()
