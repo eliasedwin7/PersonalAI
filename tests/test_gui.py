@@ -264,6 +264,12 @@ def test_voice_tab_full_turn_transcribes_replies_and_speaks(
         def stop(self_inner):
             return b"fake-wav-bytes"
 
+        def heard_speech(self_inner):
+            return True
+
+        def should_auto_stop(self_inner):
+            return False
+
     spoken = []
     monkeypatch.setattr(voice_service, "Recorder", FakeRecorder)
     monkeypatch.setattr(voice_service, "transcribe",
@@ -283,6 +289,87 @@ def test_voice_tab_full_turn_transcribes_replies_and_speaks(
     assert "what time is it" in tab.transcript.toPlainText()
     assert "canned reply" in tab.transcript.toPlainText()
     assert spoken == ["canned reply"]
+
+
+def test_voice_tab_skips_transcription_when_no_speech_heard(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    """Regression guard for the "always transcribes to 'you'" bug -
+    silence must never even reach faster-whisper."""
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
+
+    class SilentFakeRecorder:
+        def start(self_inner):
+            pass
+
+        def stop(self_inner):
+            return b"fake-wav-bytes"
+
+        def heard_speech(self_inner):
+            return False
+
+        def should_auto_stop(self_inner):
+            return False
+
+    monkeypatch.setattr(voice_service, "Recorder", SilentFakeRecorder)
+    called = []
+    monkeypatch.setattr(voice_service, "transcribe", lambda *a, **k: called.append(1))
+
+    from personalai.ui.voice_tab import VoiceTab
+
+    tab = VoiceTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab.orb.clicked.emit()  # start
+    tab.orb.clicked.emit()  # stop - recorder says nothing was heard
+
+    assert tab._state == "idle"
+    assert called == []
+    assert "Didn't hear anything" in tab.status_label.text()
+
+
+def test_voice_tab_auto_stops_without_a_second_tap(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    """Covers the silence-poll QTimer actually driving a stop, not just
+    a manual second click - this is what removes the "click stop"
+    requirement the user asked to get rid of."""
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_speech_available", lambda: False)
+
+    class AutoStoppingRecorder:
+        def __init__(self_inner):
+            self_inner.polls = 0
+
+        def start(self_inner):
+            pass
+
+        def stop(self_inner):
+            return b"fake-wav-bytes"
+
+        def heard_speech(self_inner):
+            return True
+
+        def should_auto_stop(self_inner):
+            self_inner.polls += 1
+            return self_inner.polls >= 2
+
+    monkeypatch.setattr(voice_service, "Recorder", AutoStoppingRecorder)
+    monkeypatch.setattr(voice_service, "transcribe",
+                        lambda wav_bytes, model_size: "auto stopped")
+
+    from personalai.ui.voice_tab import VoiceTab
+
+    tab = VoiceTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab.orb.clicked.emit()  # only ONE tap - no manual stop at all
+    assert tab._state == "listening"
+
+    qtbot.waitUntil(lambda: "auto stopped" in tab.transcript.toPlainText(), timeout=5000)
+    qtbot.waitUntil(lambda: tab._state == "idle", timeout=5000)
 
 
 def test_voice_tab_speak_toggle_persists_via_config_store(

@@ -52,11 +52,12 @@ STATE_SPEEDS = {
 }
 STATE_LABELS = {
     "idle": "Tap to talk",
-    "listening": "Listening… tap to stop",
+    "listening": "Listening… (stops on its own when you pause)",
     "transcribing": "Transcribing…",
     "thinking": "Thinking…",
     "speaking": "Speaking…",
 }
+SILENCE_POLL_MS = 150
 
 
 class VoiceOrb(QWidget):
@@ -126,6 +127,9 @@ class VoiceTab(QWidget):
         )
         self._state = "idle"
         self._recorder: voice_service.Recorder | None = None
+        self._silence_timer = QTimer(self)
+        self._silence_timer.setInterval(SILENCE_POLL_MS)
+        self._silence_timer.timeout.connect(self._check_auto_stop)
 
         layout = QVBoxLayout(self)
         layout.addStretch(1)
@@ -193,10 +197,29 @@ class VoiceTab(QWidget):
             QMessageBox.warning(self, "Voice", str(exc))
             return
         self._set_state("listening")
+        self._silence_timer.start()
+
+    def _check_auto_stop(self) -> None:
+        """Polled from the GUI thread (not the audio callback thread,
+        which can't safely touch Qt) - stop on its own once the
+        Recorder reports enough trailing silence, no manual tap needed."""
+        if self._recorder is not None and self._recorder.should_auto_stop():
+            self._stop_listening()
 
     def _stop_listening(self) -> None:
+        self._silence_timer.stop()
         recorder, self._recorder = self._recorder, None
         wav_bytes = recorder.stop()
+
+        if not recorder.heard_speech():
+            # Never hand faster-whisper pure silence - that's exactly what
+            # makes Whisper models hallucinate text like "you" or "Thank
+            # you." - so just go back to idle instead of transcribing.
+            self.status_label.setText("Didn't hear anything - tap to try again")
+            self._state = "idle"
+            self.orb.set_state("idle")
+            return
+
         self._set_state("transcribing")
         model_size = self.chat_service.config.whisper_model
         self.task_runner.submit(

@@ -232,8 +232,10 @@ needing a real Ollama server running.
   size/position, and model pick-lists in Settings populated from what's
   actually pulled in Ollama.
 - ✅ **A Voice tab you actually talk to** — tap a pulsing animated orb
-  to start talking, tap again to stop; it transcribes locally (faster-
-  whisper, CPU-only), sends it to the same assistant, and speaks the
+  once to start talking; it detects when you've gone quiet and stops on
+  its own (no second tap needed), transcribes locally (faster-whisper,
+  CPU-only, with silence/noise filtering so it doesn't hallucinate text
+  out of dead air), sends it to the same assistant, and speaks the
   reply back (local TTS via Windows SAPI5/pyttsx3) - all fully offline.
   The Chat tab stays typing-only on purpose. See
   [Voice input and reading replies aloud](SETUP.md#voice-input-and-reading-replies-aloud).

@@ -7,6 +7,7 @@ engine caching, the availability checks), not those libraries.
 from __future__ import annotations
 
 import sys
+import time
 import types
 import wave
 from io import BytesIO
@@ -123,6 +124,107 @@ def test_recorder_start_raises_when_sounddevice_missing(monkeypatch):
         recorder.start()
 
 
+# ---- silence detection (fixes the "always hallucinates 'you'" bug) ----
+
+def test_recorder_heard_speech_false_when_only_silence(monkeypatch):
+    import numpy as np
+
+    _install_fake_sounddevice(monkeypatch)
+    recorder = voice_service.Recorder()
+    recorder.start()
+    stream = _FakeStream.instances[-1]
+
+    quiet = np.zeros((100, 1), dtype="int16")
+    for _ in range(5):
+        stream.callback(quiet, 100, None, None)
+
+    assert recorder.heard_speech() is False
+
+
+def test_recorder_heard_speech_true_when_loud_chunk_arrives(monkeypatch):
+    import numpy as np
+
+    _install_fake_sounddevice(monkeypatch)
+    recorder = voice_service.Recorder()
+    recorder.start()
+    stream = _FakeStream.instances[-1]
+
+    quiet = np.zeros((100, 1), dtype="int16")
+    loud = np.full((100, 1), 5000, dtype="int16")
+    stream.callback(quiet, 100, None, None)  # establishes a near-zero noise floor
+    stream.callback(loud, 100, None, None)   # clearly above it
+
+    assert recorder.heard_speech() is True
+
+
+def test_recorder_should_auto_stop_false_before_start():
+    recorder = voice_service.Recorder()
+    assert recorder.should_auto_stop() is False
+
+
+def test_recorder_should_auto_stop_after_trailing_silence(monkeypatch):
+    import numpy as np
+
+    _install_fake_sounddevice(monkeypatch)
+    fake_now = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_now[0])
+
+    recorder = voice_service.Recorder()
+    recorder.start()
+    stream = _FakeStream.instances[-1]
+
+    loud = np.full((100, 1), 5000, dtype="int16")
+    quiet = np.zeros((100, 1), dtype="int16")
+
+    stream.callback(loud, 100, None, None)
+    assert recorder.should_auto_stop() is False
+
+    fake_now[0] += 0.3
+    stream.callback(quiet, 100, None, None)
+    assert recorder.should_auto_stop() is False  # not quiet long enough yet
+
+    fake_now[0] += voice_service.TRAILING_SILENCE_AUTO_STOP_S + 0.1
+    stream.callback(quiet, 100, None, None)
+    assert recorder.should_auto_stop() is True
+
+
+def test_recorder_should_auto_stop_never_true_without_speech_first(monkeypatch):
+    """Silence before anything was ever said must NOT trigger an
+    auto-stop - only trailing silence AFTER speech should."""
+    import numpy as np
+
+    _install_fake_sounddevice(monkeypatch)
+    fake_now = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_now[0])
+
+    recorder = voice_service.Recorder()
+    recorder.start()
+    stream = _FakeStream.instances[-1]
+    quiet = np.zeros((100, 1), dtype="int16")
+    stream.callback(quiet, 100, None, None)
+
+    fake_now[0] += voice_service.TRAILING_SILENCE_AUTO_STOP_S + 5
+    stream.callback(quiet, 100, None, None)
+    assert recorder.should_auto_stop() is False
+
+
+def test_recorder_should_auto_stop_hits_hard_cap_regardless_of_silence(monkeypatch):
+    import numpy as np
+
+    _install_fake_sounddevice(monkeypatch)
+    fake_now = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_now[0])
+
+    recorder = voice_service.Recorder()
+    recorder.start()
+    stream = _FakeStream.instances[-1]
+    loud = np.full((100, 1), 5000, dtype="int16")
+    stream.callback(loud, 100, None, None)
+
+    fake_now[0] += voice_service.MAX_RECORDING_S + 1
+    assert recorder.should_auto_stop() is True
+
+
 # ---- transcribe ----
 
 class _FakeSegment:
@@ -137,7 +239,10 @@ class _FakeWhisperModel:
         self.model_size = model_size
         _FakeWhisperModel.created_with.append((model_size, device, compute_type))
 
-    def transcribe(self, path):
+    last_vad_filter: ClassVar[bool | None] = None
+
+    def transcribe(self, path, vad_filter=False):
+        _FakeWhisperModel.last_vad_filter = vad_filter
         return [_FakeSegment(" hello "), _FakeSegment("world ")], {"language": "en"}
 
 
@@ -146,6 +251,7 @@ def _install_fake_faster_whisper(monkeypatch):
     fake_mod.WhisperModel = _FakeWhisperModel
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_mod)
     _FakeWhisperModel.created_with.clear()
+    _FakeWhisperModel.last_vad_filter = None
     return fake_mod
 
 
@@ -153,6 +259,14 @@ def test_transcribe_joins_segments_and_strips(monkeypatch):
     _install_fake_faster_whisper(monkeypatch)
     text = voice_service.transcribe(b"fake wav bytes", model_size="tiny.en")
     assert text == "hello world"
+
+
+def test_transcribe_enables_vad_filter(monkeypatch):
+    """vad_filter=True is the standard fix for Whisper models
+    hallucinating text like "you" on silence/background noise."""
+    _install_fake_faster_whisper(monkeypatch)
+    voice_service.transcribe(b"fake wav bytes")
+    assert _FakeWhisperModel.last_vad_filter is True
 
 
 def test_transcribe_caches_model_per_size(monkeypatch):

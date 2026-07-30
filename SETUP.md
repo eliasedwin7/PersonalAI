@@ -180,9 +180,10 @@ in the GUI's session list, and vice versa):
   to your next message; attaching multiple times combines them). The
   input box is multi-line: **Enter sends, Shift+Enter adds a new
   line** — handy for longer story or code messages.
-- **Voice** — an actual talk-to-it assistant. Tap the pulsing orb, say
-  something, tap again to stop; it answers back both as text and out
-  loud. See [Voice input and reading replies aloud](#voice-input-and-reading-replies-aloud)
+- **Voice** — an actual talk-to-it assistant. Tap the pulsing orb once
+  and say something - it notices when you've gone quiet and stops on
+  its own, then answers back both as text and out loud. See
+  [Voice input and reading replies aloud](#voice-input-and-reading-replies-aloud)
   below.
 - **Caption Image** — choose an image, optionally type what you want to
   know about it, click "Caption it".
@@ -205,27 +206,41 @@ installs).
 ## Voice input and reading replies aloud
 
 This lives in its own **Voice** tab, separate from Chat - a pulsing
-animated orb you tap to start and stop talking, rather than a mic
-button bolted onto a text box. Both directions are fully local/offline
-- no audio is ever sent anywhere over the network. If a package below
-isn't installed, the orb (or the "Speak replies aloud" checkbox) just
-shows up disabled with a tooltip explaining why, instead of crashing
+animated orb you tap once to start talking, rather than a mic button
+bolted onto a text box. Both directions are fully local/offline - no
+audio is ever sent anywhere over the network. If a package below isn't
+installed, the orb (or the "Speak replies aloud" checkbox) just shows
+up disabled with a tooltip explaining why, instead of crashing
 anything.
 
 **One turn of a conversation:**
 1. Tap the orb — it turns red and starts recording from your default
    microphone ("Listening…").
-2. Say what you want, then tap it again to stop.
+2. Just say what you want. **You don't need to tap anything to stop** -
+   it notices when you've gone quiet for about a second and ends the
+   recording on its own (you can still tap the orb early if you want to
+   cut it off sooner).
 3. It transcribes locally (via `faster-whisper`, CPU-only), sends your
    words to the assistant the same as typing them would, streams the
    reply into the log below the orb ("Thinking…"), then speaks it back
    out loud ("Speaking…") before returning to idle, ready for the next
    turn.
 
-Nothing auto-sends anything you didn't actually say out loud, and the
-whole exchange - what you said and what it replied - stays visible as
-text in the log too, in case the transcription or the speech synthesis
-is hard to follow.
+If it doesn't hear anything clearly above the room's background noise,
+it says so ("Didn't hear anything - tap to try again") and goes back to
+idle instead of guessing - Whisper-family models are known to
+hallucinate filler text like "you" or "Thank you." when fed silence, so
+this checks for actual speech itself rather than trusting the model to
+know the difference. Nothing auto-sends anything you didn't actually
+say out loud, and the whole exchange - what you said and what it
+replied - stays visible as text in the log too, in case the
+transcription or the speech synthesis is hard to follow.
+
+If it consistently mishears you, cuts you off too early/late, or
+mistakes silence for speech, your mic's input level might just need
+adjusting in Windows' own Sound settings (too quiet makes real speech
+look like background noise; too hot makes background noise look like
+speech) - there's no in-app sensitivity setting for this yet.
 
 The first recording after installing/switching model size downloads a
 small model from Hugging Face (~75-150MB depending on size, cached
@@ -443,6 +458,18 @@ Hugging Face - if you're offline at that moment it'll fail. Try a
 smaller model size (`tiny.en`) in Settings if it's consistently slow;
 like text models, this runs on CPU and a bigger size is a real
 speed/accuracy trade-off, not a bug.
+
+**It keeps transcribing to "you" (or "Thank you.") even though I said
+something else, or it stops recording before I've finished talking**
+This means it isn't actually picking up your voice as speech - either
+your mic's input level is too quiet (Windows Sound settings → Input →
+raise the microphone volume/gain) or the wrong microphone is set as
+default. The Voice tab deliberately skips transcription and shows
+"Didn't hear anything" when it detects true silence, specifically to
+avoid this - if you're instead getting hallucinated text, the recording
+does contain *some* signal, just not one your mic is delivering loud
+enough to register clearly as speech. Also check you're not talking
+into a muted or disconnected microphone.
 
 **The built .exe won't launch, or the mic/read-aloud controls work in
 `myai gui` but not in the frozen .exe**
