@@ -1,11 +1,19 @@
-"""Per-machine settings: which Ollama server to use, and which model
-handles each task. Stored as JSON at ~/.personalai/config.json so it's
-easy to hand-edit and never accidentally lives inside a git repo.
+"""Per-machine settings: which LLM backend and server/API to use, and
+which model handles each task. Stored as JSON at ~/.personalai/config.json
+so it's easy to hand-edit and never accidentally lives inside a git repo.
 
 Task-based model mapping is the whole point of the "story/code/general"
-split: Ollama serves whichever model is currently requested, so switching
-task just means picking a different model name - no separate servers,
-no restart.
+split: whichever backend is active serves whichever model is currently
+requested, so switching task just means picking a different model name -
+no separate servers, no restart. `models` stays a flat task->name dict
+regardless of backend; a model NAME's meaning depends on which backend
+is active (e.g. models.story might be "llama3.1" under Ollama or
+"claude-sonnet-5" under Anthropic) - see services/backend_factory.py.
+
+Deliberately NOT stored here: API keys. Those come from the
+ANTHROPIC_API_KEY / OPENAI_API_KEY environment variables only, the same
+place any other credential belongs - never in a config file that could
+be copied, backed up, or accidentally shared.
 """
 
 from __future__ import annotations
@@ -34,9 +42,16 @@ def ensure_dirs() -> None:
     CONVERSATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+BACKEND_NAMES = ("ollama", "anthropic", "openai")
+
+
 @dataclass
 class Config:
+    backend: str = "ollama"       # "ollama" | "anthropic" | "openai" - see BACKEND_NAMES
     ollama_url: str = "http://127.0.0.1:11434"
+    openai_base_url: str = "https://api.openai.com/v1"  # override for Codex-compatible
+                                                          # endpoints, OpenRouter, a local
+                                                          # server, etc.
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
     context_char_limit: int = 12000  # rough guard on --context file size, see context_service.py
 

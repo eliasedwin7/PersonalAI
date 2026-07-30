@@ -9,9 +9,18 @@
     myai list                       # saved conversations
     myai show NAME [--full]         # print a conversation's transcript
     myai models                     # models Ollama currently has pulled
+    myai backends                   # list backends (ollama/anthropic/openai) + active one
     myai config show
-    myai config set KEY VALUE       # e.g. models.story llama3.1
+    myai config set KEY VALUE       # e.g. backend anthropic, models.story llama3.1
     myai gui                        # launch the desktop app
+
+The chat backend is swappable: Ollama (local, default), Anthropic
+(Claude), or an OpenAI-compatible API (OpenAI itself, Codex-style
+endpoints, or anything else exposing the same wire format - point
+config's openai_base_url at it). Switch with
+`myai config set backend <name>`; API keys come from the
+ANTHROPIC_API_KEY / OPENAI_API_KEY environment variables, never from
+config - see SETUP.md.
 
 With no message, `chat`/`story`/`code` drop into an interactive loop
 (type a line, get a reply, Ctrl+D or "exit" to quit) - reading in real
@@ -30,13 +39,13 @@ from personalai.core import config as config_mod
 from personalai.core.conversation import Conversation, ConversationStore
 from personalai.core.errors import PersonalAIError
 from personalai.services import context_service, vision_service
+from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import (
     DEFAULT_TASK,
     TEXT_TASKS,
     VISION_TASK,
     ChatService,
 )
-from personalai.services.ollama_client import OllamaClient
 
 
 def _reconfigure_stdio() -> None:
@@ -52,7 +61,7 @@ def _build_service() -> tuple[ChatService, config_mod.Config]:
     chat_service = ChatService(
         config=config,
         store=ConversationStore(),
-        client=OllamaClient(config.ollama_url),
+        client=build_llm_client(config),
     )
     return chat_service, config
 
@@ -213,6 +222,12 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def cmd_models(args: argparse.Namespace) -> int:
+    """Always inspects the local Ollama server specifically - "what's
+    pulled" is inherently an Ollama question, regardless of which
+    backend is currently active (useful to check before switching back
+    to it, or just to see what's on disk)."""
+    from personalai.services.ollama_client import OllamaClient
+
     _service, config = _build_service()
     client = OllamaClient(config.ollama_url)
     if not client.is_available():
@@ -228,11 +243,32 @@ def cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backends(args: argparse.Namespace) -> int:
+    import os
+
+    config = config_mod.ConfigStore().load()
+    notes = {
+        "ollama": f"local server at {config.ollama_url}",
+        "anthropic": ("via ANTHROPIC_API_KEY" if os.environ.get("ANTHROPIC_API_KEY")
+                      else "via ANTHROPIC_API_KEY (not set)"),
+        "openai": (f"base_url={config.openai_base_url}"
+                   + ("" if os.environ.get("OPENAI_API_KEY")
+                      else ", OPENAI_API_KEY not set")),
+    }
+    for name in config_mod.BACKEND_NAMES:
+        marker = "*" if name == config.backend else " "
+        print(f"{marker} {name:10s} {notes[name]}")
+    print("\n* = active. Switch with: myai config set backend <name>")
+    return 0
+
+
 def cmd_config_show(args: argparse.Namespace) -> int:
     config_mod.ensure_dirs()
     config = config_mod.ConfigStore().load()
-    print(f"ollama_url         = {config.ollama_url}")
-    print(f"context_char_limit = {config.context_char_limit}")
+    print(f"backend             = {config.backend}")
+    print(f"ollama_url          = {config.ollama_url}")
+    print(f"openai_base_url     = {config.openai_base_url}")
+    print(f"context_char_limit  = {config.context_char_limit}")
     print("models:")
     for task in (*TEXT_TASKS, VISION_TASK):
         print(f"  {task:8s} = {config.model_for(task)}")
@@ -244,8 +280,21 @@ def cmd_config_set(args: argparse.Namespace) -> int:
     store = config_mod.ConfigStore()
     config = store.load()
     key, value = args.key, args.value
-    if key == "ollama_url":
+    if key in ("anthropic_api_key", "openai_api_key"):
+        env_name = "ANTHROPIC_API_KEY" if key == "anthropic_api_key" else "OPENAI_API_KEY"
+        print(f"API keys aren't stored in config - set the {env_name} "
+              "environment variable instead (see SETUP.md).", file=sys.stderr)
+        return 1
+    if key == "backend":
+        if value not in config_mod.BACKEND_NAMES:
+            print(f"Unknown backend '{value}' (expected one of: "
+                  f"{', '.join(config_mod.BACKEND_NAMES)}).", file=sys.stderr)
+            return 1
+        config.backend = value
+    elif key == "ollama_url":
         config.ollama_url = value
+    elif key == "openai_base_url":
+        config.openai_base_url = value
     elif key == "context_char_limit":
         try:
             config.context_char_limit = int(value)
@@ -261,8 +310,9 @@ def cmd_config_set(args: argparse.Namespace) -> int:
             return 1
         config.models[task] = value
     else:
-        print(f"Unknown setting '{key}'. Try: ollama_url, context_char_limit, "
-              "models.general, models.story, models.code, models.vision", file=sys.stderr)
+        print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
+              "context_char_limit, models.general, models.story, models.code, "
+              "models.vision", file=sys.stderr)
         return 1
     store.save(config)
     print(f"{key} = {value}")
@@ -312,6 +362,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_models = sub.add_parser("models", help="list models Ollama has pulled")
     p_models.set_defaults(func=cmd_models)
+
+    p_backends = sub.add_parser("backends", help="list backends and which one is active")
+    p_backends.set_defaults(func=cmd_backends)
 
     p_config = sub.add_parser("config", help="view or change settings")
     config_sub = p_config.add_subparsers(dest="config_command", required=True)

@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget
+from PySide6.QtWidgets import QDialog, QLabel, QMainWindow, QTabWidget
 
 from personalai.core.config import ConfigStore
+from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
 from personalai.ui.caption_tab import CaptionTab
 from personalai.ui.chat_tab import ChatTab
@@ -36,7 +37,7 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
 
-        self.status_label = QLabel("Ollama: checking…")
+        self.status_label = QLabel(f"{chat_service.config.backend}: checking…")
         self.statusBar().addPermanentWidget(self.status_label)
         self._health_timer = QTimer(self)
         self._health_timer.setInterval(HEALTH_INTERVAL_MS)
@@ -52,16 +53,23 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.chat_service.config, self.config_store, self)
-        dialog.exec()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Config is mutated in place by the dialog, but the ChatService's
+            # client object was already built from the OLD settings - rebuild
+            # it so a backend switch (or a new URL/base_url) takes effect
+            # immediately instead of needing an app restart.
+            self.chat_service.client = build_llm_client(self.chat_service.config)
+            self._check_health()
 
     def _check_health(self) -> None:
         self.task_runner.submit(self.chat_service.client.is_available,
                                 on_result=self._show_health)
 
     def _show_health(self, online: bool) -> None:
+        backend = self.chat_service.config.backend
         if online:
-            self.status_label.setText("Ollama: ● online")
+            self.status_label.setText(f"{backend}: ● online")
             self.status_label.setStyleSheet("color: #4ec94e;")
         else:
-            self.status_label.setText("Ollama: ● offline")
+            self.status_label.setText(f"{backend}: ● offline")
             self.status_label.setStyleSheet("color: #8c8c8c;")

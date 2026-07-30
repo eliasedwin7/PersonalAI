@@ -16,5 +16,14 @@ class UserFacingError(PersonalAIError):
         return str(self)
 
 
-class OllamaUnavailable(PersonalAIError):
-    """Ollama isn't reachable, or rejected a request."""
+class BackendUnavailable(PersonalAIError):
+    """The active LLM backend (Ollama, Claude, or an OpenAI-compatible
+    API) isn't reachable, or isn't configured (e.g. missing API key)."""
+
+
+class OllamaUnavailable(BackendUnavailable):
+    """Ollama specifically isn't reachable. Kept as its own subclass so
+    call sites that want Ollama-specific messaging ("is it installed and
+    running?") can still catch it distinctly, while generic code (CLI
+    error printing, the GUI status light) can catch BackendUnavailable
+    and work the same way regardless of which backend is active."""

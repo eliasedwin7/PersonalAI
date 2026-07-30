@@ -1,7 +1,10 @@
 # Setup Guide
 
-Step-by-step: installing Ollama (the thing that actually runs the AI
-model), installing PersonalAI, and having your first conversation.
+Step-by-step: installing Ollama (the default, fully-offline backend),
+installing PersonalAI, and having your first conversation. Everything
+below was actually run start-to-finish on a plain CPU-only laptop (no
+discrete GPU, 16GB RAM) - it's a genuinely light setup, not just a
+theoretical one.
 
 **Contents**
 - [Before you start](#before-you-start)
@@ -12,6 +15,7 @@ model), installing PersonalAI, and having your first conversation.
 - [The desktop app](#the-desktop-app)
 - [Captioning images](#captioning-images)
 - [Choosing models](#choosing-models)
+- [Using Claude, OpenAI, or a Codex-compatible API instead](#using-claude-openai-or-a-codex-compatible-api-instead)
 - [Troubleshooting](#troubleshooting)
 - [Uninstalling / starting over](#uninstalling--starting-over)
 
@@ -24,10 +28,14 @@ You need:
 - **Windows 10/11**
 - **Anaconda** or **Miniconda** ([anaconda.com/download](https://www.anaconda.com/download))
   for PersonalAI's own tiny Python environment.
-- A decent amount of free RAM/VRAM to run a model. A modern 7-8B model
-  runs reasonably even on a laptop CPU (slowly); anything bigger really
-  wants a GPU with 8GB+ VRAM. You don't need a top-end card to get
-  started — you can always try a smaller model first.
+- A decent amount of free RAM/VRAM to run a model - or none at all if
+  you'd rather use Claude/OpenAI instead of a local model (see
+  [Using Claude, OpenAI, or a Codex-compatible API instead](#using-claude-openai-or-a-codex-compatible-api-instead)).
+  For a local model: a small one (2-3B parameters, e.g. `llama3.2:3b`)
+  runs comfortably on CPU alone in a few GB of RAM and a few seconds per
+  reply - genuinely fine for a laptop with no GPU. A 7-8B model still
+  works on CPU, just slower; anything bigger really wants a GPU with
+  8GB+ VRAM.
 
 PersonalAI itself has no GPU requirement and installs in seconds — the
 model is what needs the hardware, and that's Ollama's job, not
@@ -38,12 +46,18 @@ PersonalAI's.
 1. Download and install Ollama from **[ollama.com](https://ollama.com)**
    — it's a normal Windows installer, no account or sign-in needed.
 2. Open a terminal (any terminal — Ollama isn't tied to Anaconda) and
-   pull a model:
+   pull a model. On a laptop with no discrete GPU, start small - it's
+   genuinely usable, not a toy:
+   ```powershell
+   ollama pull llama3.2:3b
+   ```
+   ~2GB download, replies in a handful of seconds on CPU alone (Step 3
+   below points PersonalAI at it). If you have a real GPU (8GB+ VRAM) or
+   don't mind slower replies, the bigger `llama3.1` (PersonalAI's
+   out-of-the-box default) gives noticeably better quality:
    ```powershell
    ollama pull llama3.1
    ```
-   This downloads a few gigabytes once. `llama3.1` is a solid general
-   all-rounder and PersonalAI's default for both chat and story mode.
 3. (Optional, for coding help) Pull a coding-focused model too:
    ```powershell
    ollama pull qwen2.5-coder
@@ -72,6 +86,13 @@ PersonalAI's.
    re-run any time.
 
 ## Step 3 - Your first conversation
+
+If you pulled the small `llama3.2:3b` model in Step 1, point PersonalAI
+at it (otherwise skip this - `llama3.1` is already the default):
+```powershell
+conda run -n personalai myai config set models.general llama3.2:3b
+conda run -n personalai myai config set models.story llama3.2:3b
+```
 
 ```powershell
 conda run -n personalai myai chat "what can you help me with?"
@@ -217,6 +238,55 @@ better GPU), point PersonalAI at it over your network instead of
 myai config set ollama_url http://192.168.1.50:11434
 ```
 
+## Using Claude, OpenAI, or a Codex-compatible API instead
+
+Everything above uses Ollama (local, offline, default). If you'd rather
+use a hosted model - Claude, OpenAI, or anything exposing an
+OpenAI-compatible `/chat/completions` API (Codex-style endpoints,
+OpenRouter, a teammate's shared server) - swap the backend instead of
+installing anything:
+
+**Claude (Anthropic):**
+```powershell
+setx ANTHROPIC_API_KEY "sk-ant-..."
+```
+Close and reopen your terminal (so the new environment variable is
+picked up), then:
+```powershell
+myai config set backend anthropic
+myai config set models.story claude-sonnet-5
+myai chat "hello"
+```
+
+**OpenAI (or a Codex-compatible / other OpenAI-shaped endpoint):**
+```powershell
+setx OPENAI_API_KEY "sk-..."
+```
+Reopen your terminal, then:
+```powershell
+myai config set backend openai
+myai config set models.story gpt-4o
+# only if you're NOT using OpenAI's own API - point at your endpoint:
+myai config set openai_base_url https://my-codex-endpoint.example/v1
+myai chat "hello"
+```
+
+Check which backend is active and whether its key is set at any time
+with `myai backends`. **API keys are never written to
+`~/.personalai/config.json`** — only read from the environment variables
+above, so `myai config set anthropic_api_key ...` / `openai_api_key ...`
+are deliberately refused rather than silently doing something unsafe.
+
+Switching back to Ollama is the same command:
+```powershell
+myai config set backend ollama
+```
+
+In the desktop app, all of this is under **File → Settings…** (backend
+dropdown + base URL field) except the keys themselves, which still only
+come from the environment variables — the Settings dialog has no field
+for typing one in.
+
 ## Troubleshooting
 
 **"Cannot reach Ollama at http://127.0.0.1:11434"**
@@ -249,6 +319,20 @@ Make sure the model set for `models.vision` is actually a vision-capable
 one (`llava`, `llama3.2-vision`, `bakllava`, etc.) — a text-only model
 like `llama3.1` will either ignore the image or Ollama will reject the
 request. Check with `myai config show`.
+
+**"No Anthropic API key found" / "No API key found" (OPENAI_API_KEY)**
+The `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment variable isn't
+set (or isn't visible to this terminal yet). After running `setx`, close
+and reopen the terminal — `setx` only affects *new* processes, not the
+one you ran it from. Confirm with `myai backends`, which shows whether
+each key is currently set.
+
+**Switched backend but `myai chat` still seems to hit the old one**
+In the CLI this can't happen (each command rebuilds its client from
+current config) - double check with `myai config show` that `backend`
+actually changed. In the GUI, switching backend in Settings rebuilds the
+live connection immediately on clicking OK; if something still looks
+off, restart `myai gui`.
 
 **I want to point this at a Dune-Remaster (or any other project) file or folder**
 You don't need PersonalAI to live inside that project — just pass the

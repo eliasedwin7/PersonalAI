@@ -209,6 +209,65 @@ def test_settings_dialog_saves(qtbot, tmp_path):
     assert reloaded.model_for("code") == "deepseek-coder-v2"
 
 
+def test_settings_dialog_backend_combo_saves(qtbot, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    config = store.load()
+    dialog = SettingsDialog(config, store)
+    qtbot.addWidget(dialog)
+
+    assert dialog.backend_combo.currentText() == "ollama"
+    dialog.backend_combo.setCurrentText("openai")
+    dialog.openai_base_edit.setText("https://my-proxy.example/v1")
+    dialog._save()
+
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.backend == "openai"
+    assert reloaded.openai_base_url == "https://my-proxy.example/v1"
+
+
+def test_settings_dialog_never_exposes_an_api_key_field(qtbot, tmp_path):
+    """Regression guard for the "env var only" design decision - a
+    QLineEdit meant for typing a raw key would be a real mistake here."""
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+    assert not hasattr(dialog, "anthropic_api_key_edit")
+    assert not hasattr(dialog, "openai_api_key_edit")
+
+
+def test_settings_backend_switch_rebuilds_live_client(qtbot, chat_service, tmp_path, monkeypatch):
+    """Regression guard for the CharacterStudio-style "live settings"
+    fix: accepting Settings with a new backend must replace
+    chat_service.client immediately, not just update config values that
+    an already-constructed OllamaClient never re-reads."""
+    from PySide6.QtWidgets import QDialog
+
+    from personalai.core.config import ConfigStore
+    from personalai.services.anthropic_client import AnthropicClient
+    from personalai.ui.main_window import MainWindow
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
+    qtbot.addWidget(window)
+
+    def fake_exec(self):
+        self.backend_combo.setCurrentText("anthropic")
+        self._save()
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window._open_settings()
+
+    assert window.chat_service.config.backend == "anthropic"
+    assert isinstance(window.chat_service.client, AnthropicClient)
+
+
 def test_main_window_constructs_with_both_tabs(qtbot, chat_service, tmp_path):
     from personalai.core.config import ConfigStore
     from personalai.ui.main_window import MainWindow

@@ -119,6 +119,72 @@ def test_config_set_rejects_unknown_task(isolated_home, capsys):
     assert "Unknown task" in capsys.readouterr().err
 
 
+def test_config_show_includes_backend(isolated_home, capsys):
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "backend             = ollama" in out
+
+
+def test_config_set_backend_switches_it(isolated_home, capsys):
+    cli.main(["config", "set", "backend", "anthropic"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "backend             = anthropic" in out
+
+
+def test_config_set_backend_rejects_unknown(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "backend", "nonsense"])
+    assert exit_code == 1
+    assert "Unknown backend" in capsys.readouterr().err
+
+
+def test_config_set_refuses_api_key_and_points_at_env_var(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "anthropic_api_key", "sk-ant-whatever"])
+    assert exit_code == 1
+    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+
+def test_config_set_openai_base_url(isolated_home, capsys):
+    cli.main(["config", "set", "openai_base_url", "https://my-proxy.example/v1"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "https://my-proxy.example/v1" in out
+
+
+def test_backends_command_lists_all_three_and_marks_active(isolated_home, capsys):
+    exit_code = cli.main(["backends"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "ollama" in out and "anthropic" in out and "openai" in out
+    assert "* ollama" in out  # default backend marked active
+
+
+def test_backends_command_reflects_switch(isolated_home, capsys):
+    cli.main(["config", "set", "backend", "openai"])
+    capsys.readouterr()
+    cli.main(["backends"])
+    out = capsys.readouterr().out
+    assert "* openai" in out
+    assert "* ollama" not in out
+
+
+def test_switching_backend_actually_changes_which_client_chat_uses(
+    isolated_home, monkeypatch, capsys
+):
+    """End-to-end proof (not just the factory unit test): once backend is
+    switched to anthropic, `myai chat` must hit the Anthropic path - not
+    silently keep using the mocked Ollama client from the autouse fixture."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cli.main(["config", "set", "backend", "anthropic"])
+    capsys.readouterr()
+
+    exit_code = cli.main(["chat", "hello"])
+    assert exit_code == 1
+    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+
 def test_context_file_is_prepended_to_one_shot_message(isolated_home, tmp_path):
     outline = tmp_path / "STORY_OUTLINE.md"
     outline.write_text("Chapter 3: the siege begins.", encoding="utf-8")

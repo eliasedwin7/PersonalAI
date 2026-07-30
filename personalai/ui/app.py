@@ -7,8 +7,8 @@ import sys
 
 from personalai.core import config as config_mod
 from personalai.core.conversation import ConversationStore
+from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
-from personalai.services.ollama_client import OllamaClient
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     chat_service = ChatService(
         config=config,
         store=ConversationStore(),
-        client=OllamaClient(config.ollama_url),
+        client=build_llm_client(config),
     )
 
     app = QApplication(argv if argv is not None else sys.argv[:1])

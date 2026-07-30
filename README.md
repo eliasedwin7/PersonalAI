@@ -1,21 +1,23 @@
 # PersonalAI
 
-**Your own AI assistant, running entirely on your own PC — no internet, no
-account, no API key.**
+**Your own AI assistant - runs fully offline against a local Ollama model
+by default, or swap in Claude / OpenAI (or any OpenAI-compatible /
+Codex-style API) with one config change.**
 
-A tool that talks to [Ollama](https://ollama.com) (a free program that
-runs AI chat models locally) and gives you four ready-to-use modes, from
-the command line or a small desktop app:
+A tool that gives you four ready-to-use modes, from the command line or
+a small desktop app:
 
 - **`myai chat`** — general-purpose assistant
 - **`myai story`** — creative writing / dialogue / worldbuilding collaborator
 - **`myai code`** — coding help
 - **`myai caption`** — describe or ask questions about an image, using a
-  local vision model
+  vision-capable model
 
 Every conversation is saved to a plain JSON file on your disk, so you can
 pick up where you left off, list past sessions, or hand a transcript to
-someone else. Nothing ever leaves your machine.
+someone else. With the default Ollama backend, nothing ever leaves your
+machine; switching to Claude or OpenAI is an explicit, one-line opt-in
+(see [Choosing a backend](#choosing-a-backend) below).
 
 New here? **→ Start with [SETUP.md](SETUP.md)** for installing Ollama and
 PersonalAI and having your first conversation.
@@ -74,11 +76,14 @@ myai caption IMAGE ["instruction"]  describe/ask about an image
 myai list                          list every saved conversation
 myai show NAME                     print a conversation's full transcript
 myai models                        list models Ollama currently has pulled
+myai backends                      list backends (ollama/anthropic/openai) + which is active
 
 myai config show                   view current settings
-myai config set KEY VALUE          e.g. models.story llama3.1
+myai config set KEY VALUE          e.g. backend anthropic
+                                    e.g. models.story llama3.1
                                     e.g. models.vision llama3.2-vision
                                     e.g. ollama_url http://192.168.1.50:11434
+                                    e.g. openai_base_url https://my-proxy.example/v1
 
 myai gui                           launch the desktop app
 ```
@@ -116,6 +121,48 @@ instruction text and the model's reply are saved to the conversation
 Pull a vision-capable model first: `ollama pull llava` (the default) or
 `ollama pull llama3.2-vision` (bigger, better, needs more VRAM).
 
+## Choosing a backend
+
+PersonalAI talks to whichever backend is configured, through the exact
+same `ChatService` and CLI/GUI regardless of which one:
+
+| Backend | What it is | API key |
+|---|---|---|
+| `ollama` (default) | A local Ollama server - fully offline | none |
+| `anthropic` | Claude, via Anthropic's API | `ANTHROPIC_API_KEY` |
+| `openai` | OpenAI, a Codex-compatible endpoint, or any other API exposing the same `/chat/completions` shape (OpenRouter, a local llama.cpp/vLLM server, LM Studio, ...) | `OPENAI_API_KEY` |
+
+Switch with:
+```powershell
+myai config set backend anthropic
+myai backends              # see which one is active and whether its key is set
+```
+
+API keys are **never stored in config** - only read from the
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment variables, same
+convention as the official SDKs. Set one in your shell profile (or with
+`setx ANTHROPIC_API_KEY "..."` on Windows, then open a new terminal) and
+it just works; `myai config set anthropic_api_key ...` is deliberately
+refused with a pointer to this instead, so a key never ends up sitting
+in a JSON file or your shell history.
+
+For `openai`, point `openai_base_url` at whatever endpoint you're
+actually using (defaults to OpenAI's own API):
+```powershell
+myai config set openai_base_url https://my-codex-endpoint.example/v1
+```
+
+`models.<task>` keeps working exactly the same after switching - a model
+NAME's meaning just depends on which backend is active (e.g.
+`models.story` might be `llama3.1` under Ollama or `claude-sonnet-5`
+under Anthropic):
+```powershell
+myai config set models.story claude-sonnet-5
+```
+
+Changing backend in the GUI's **File → Settings…** takes effect
+immediately, same as changing a URL - no restart needed.
+
 ## How it's organized
 
 ```
@@ -126,10 +173,14 @@ personalai/
     conversation.py        one JSON file per saved conversation
     errors.py
   services/
-    ollama_client.py       thin HTTP client for a local Ollama server
-    chat_service.py        per-task system prompts + turn orchestration
-    context_service.py     --context file/folder loading + truncation
-    vision_service.py      image loading/encoding for the caption task
+    llm_client.py           the LLMClient contract every backend implements
+    ollama_client.py        local Ollama server
+    anthropic_client.py     Claude (Messages API)
+    openai_client.py        OpenAI / Codex-compatible / any OpenAI-shaped API
+    backend_factory.py      builds the active client from Config.backend
+    chat_service.py         per-task system prompts + turn orchestration
+    context_service.py      --context file/folder loading + truncation
+    vision_service.py       image loading/encoding for the caption task
   ui/                     desktop GUI (`myai gui`) - a thin layer over
                           the same services, nothing here is required
                           for the CLI, and PySide6 is only imported when
@@ -155,14 +206,21 @@ needing a real Ollama server running.
 - ✅ **Folder context** — `--context` accepts a file or a whole folder
   (recursively combines its text files), in both the CLI and the GUI's
   "Attach folder…" button.
+- ✅ **Swappable backends** — Ollama (default, offline), Claude
+  (Anthropic), or any OpenAI-compatible API (OpenAI, Codex-style
+  endpoints, OpenRouter, a local server) - one `myai config set backend
+  <name>` away, no code changes. See
+  [Choosing a backend](#choosing-a-backend).
 - Possible next: a global hotkey / system-tray quick-chat for launching
   PersonalAI without opening a terminal first.
 
 ## A note on model choice
 
 PersonalAI doesn't ship or recommend any specific model beyond the
-defaults (`llama3.1` for general/story, `qwen2.5-coder` for code) — pick
-whatever Ollama model fits your GPU and suits your taste, and set it with
-`myai config set models.<task> <model-name>`. Larger/better models need
-more VRAM; if a model is too slow or won't load, try a smaller or more
-quantized version of the same family.
+defaults (`llama3.1` for general/story, `qwen2.5-coder` for code, both
+via Ollama) — pick whatever fits your hardware and taste, and set it
+with `myai config set models.<task> <model-name>`. What "fits" means
+depends on the backend: for Ollama, larger/better local models need
+more VRAM (or run slower on CPU - a small model like `llama3.2:3b` is a
+solid, genuinely usable choice on a CPU-only laptop); for Claude/OpenAI,
+it just means picking whichever hosted model name you want to pay for.
