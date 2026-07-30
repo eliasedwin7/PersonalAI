@@ -4,7 +4,7 @@
 by default, or swap in Claude / OpenAI (or any OpenAI-compatible /
 Codex-style API) with one config change.**
 
-A tool that gives you four ready-to-use modes, from the command line or
+A tool that gives you several ready-to-use modes, from the command line or
 a small desktop app:
 
 - **`myai chat`** — general-purpose assistant
@@ -12,6 +12,12 @@ a small desktop app:
 - **`myai code`** — coding help
 - **`myai caption`** — describe or ask questions about an image, using a
   vision-capable model
+- **`myai agent`** — a Claude-Code-like assistant scoped to a folder: it
+  can read/search/edit files and run shell commands there, gated by a
+  Plan / Auto-accept / Manual mode (see [Agent mode](#agent-mode)).
+- **`myai image`** — generate an image from a prompt, or a prompt + a
+  reference image, through Stable Diffusion Forge (see
+  [Image generation](#image-generation)).
 
 Every conversation is saved to a plain JSON file on your disk, so you can
 pick up where you left off, list past sessions, or hand a transcript to
@@ -78,6 +84,24 @@ myai caption IMAGE ["instruction"]  describe/ask about an image
   --session NAME     name this conversation thread (default: "vision")
   --reset             start this session's history over
 
+myai agent ["message"]             file-aware assistant scoped to a folder
+  --workspace PATH   folder the agent may read/edit/run commands in
+                      (default: config's agent_workspace)
+  --mode plan|auto|manual   plan = propose only, nothing is ever applied;
+                      auto = every action runs immediately, no confirmation;
+                      manual = confirm every write/edit/command
+                      (default: config's agent_mode, "plan")
+  --session NAME     name this conversation thread (default: "agent")
+  --reset             start this session's history over
+
+myai image "prompt" [--reference PATH]   generate an image via Forge
+  --reference PATH   an image to use as img2img's starting point
+  --out PATH          save location (default: a timestamped file under
+                      image_save_dir)
+  --checkpoint NAME   switch Forge's loaded checkpoint first
+  --steps N            --cfg N            --denoise N (img2img only)
+myai image-models                  list checkpoints Forge currently has loaded
+
 myai list                          list every saved conversation
 myai show NAME                     print a conversation's full transcript
 myai models                        list models Ollama currently has pulled
@@ -91,6 +115,10 @@ myai config set KEY VALUE          e.g. backend anthropic
                                     e.g. openai_base_url https://my-proxy.example/v1
                                     e.g. whisper_model small.en
                                     e.g. read_replies_aloud true
+                                    e.g. agent_workspace C:\path\to\project
+                                    e.g. agent_mode auto
+                                    e.g. forge_url http://192.168.1.50:7860
+                                    e.g. image_save_dir C:\path\to\images
 
 myai gui                           launch the desktop app (see also:
                                     Run-PersonalAI-GUI.bat, or build a
@@ -175,6 +203,52 @@ myai config set models.story claude-sonnet-5
 Changing backend in the GUI's **File → Settings…** takes effect
 immediately, same as changing a URL - no restart needed.
 
+## Agent mode
+
+`myai agent` (CLI) / the **Agent** tab (GUI) points the assistant at one
+folder and lets it read, search, and edit files there, or run shell
+commands - similar to how Claude Code works against a project directory.
+Every action is gated by a mode:
+
+| Mode | What happens |
+|---|---|
+| `plan` (default) | Nothing is ever applied. Reads run for real; a write/edit/command is only *simulated* - you see a diff or the command text, the workspace is never touched. |
+| `auto` | Every action runs immediately, no per-action confirmation - including shell commands. Every call is still logged (in the CLI's output / the GUI's Activity panel), never silent. |
+| `manual` | Every write/edit/command pauses for your explicit yes/no first (a terminal prompt in the CLI, a dialog in the GUI). Reads still run immediately - nothing to confirm about a read. |
+
+```powershell
+myai config set agent_workspace "C:\path\to\some\project"
+myai agent "list the files in this folder and summarize what this project does"
+myai agent --mode auto "add a .gitignore for a Python project"
+```
+
+Sandboxing is absolute regardless of mode: every tool path is resolved
+against the workspace folder and anything that would escape it
+(`../..`, an absolute path elsewhere) is refused outright. Commands run
+with a hard 120-second timeout and truncated output, always fed back to
+you, never swallowed.
+
+## Image generation
+
+`myai image` (CLI) / the **Image** tab (GUI) generates an image from a
+prompt, or a prompt + an uploaded reference image, through a running
+**Stable Diffusion Forge** (AUTOMATIC1111-style webui) instance - the
+same shape as ChatGPT's image tool.
+
+```powershell
+myai config set forge_url http://192.168.1.50:7860   # your Forge machine's address
+myai image "a lighthouse at sunset, watercolor style"
+myai image "make the sky more dramatic" --reference "C:\path\to\lighthouse.png" --denoise 0.5
+myai image-models                                     # list checkpoints Forge has loaded
+```
+
+If Forge is gated with `--gradio-auth` (as this project's own GPU-PC
+setup is, per its own docs), set `FORGE_USERNAME`/`FORGE_PASSWORD`
+environment variables the same way `ANTHROPIC_API_KEY` works - never
+stored in `config.json`. Every generated image is saved under
+`image_save_dir` (default `~/.personalai/images/`) in addition to
+wherever `--out` points, so there's always a folder of past results.
+
 ## How it's organized
 
 ```
@@ -196,12 +270,18 @@ personalai/
     voice_service.py        mic recording + local transcription (faster-
                             whisper) + text-to-speech (pyttsx3), used by
                             the Voice tab; all lazily-imported/optional
+    agent_service.py        Agent mode: sandboxed file tools + shell
+                            commands, gated by plan/auto/manual
+    image_service.py        ForgeClient - txt2img/img2img via Stable
+                            Diffusion Forge's REST API
   gui_main.py             bare GUI entry point (no argparse) - used by
                           the frozen .exe and Run-PersonalAI-GUI.bat
   ui/                     desktop GUI (`myai gui`) - a thin layer over
                           the same services, nothing here is required
                           for the CLI, and PySide6 is only imported when
-                          this subcommand actually runs
+                          this subcommand actually runs (adds an Agent
+                          tab and an Image tab alongside Chat/Voice/
+                          Caption Image)
 ```
 
 Everything under `services/` and `core/` is plain Python with no CLI,
@@ -216,8 +296,8 @@ needing a real Ollama server running.
 - ✅ **Desktop GUI** (`myai gui`) — a window over the same
   `ChatService`/`ConversationStore`: a Chat tab (session list, task
   picker, streaming transcript, file/folder context attach), a Voice
-  tab (talk to it out loud), and a Caption Image tab (pick an image,
-  ask about it, streamed description).
+  tab (talk to it out loud), a Caption Image tab (pick an image, ask
+  about it, streamed description), an Agent tab, and an Image tab.
 - ✅ **Vision/captioning mode** — `myai caption`, using an Ollama vision
   model (`llava` by default), independent of any specific project's
   tagging pipeline.
@@ -250,8 +330,18 @@ needing a real Ollama server running.
   showing raw ```/**/- markup as literal text. Only applies to the
   assistant's side - your own typed messages always show up exactly as
   typed.
+- ✅ **Agent mode** — `myai agent` / the Agent tab: a file-aware assistant
+  scoped to one folder, with Plan/Auto-accept/Manual gating over
+  reading, editing, and running shell commands there. See
+  [Agent mode](#agent-mode).
+- ✅ **Image generation** — `myai image` / the Image tab: a prompt, or a
+  prompt + a reference image, generated through Stable Diffusion Forge.
+  See [Image generation](#image-generation).
 - Possible next: a global hotkey for summoning PersonalAI from anywhere
-  without clicking the tray icon first.
+  without clicking the tray icon first; editable per-task system
+  prompts; long-conversation context trimming; drag-and-drop image
+  attach in the Chat tab; a persistent folder knowledge base
+  (`myai index`); cross-session search; conversation export.
 
 ## A note on model choice
 

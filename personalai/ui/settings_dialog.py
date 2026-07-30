@@ -58,6 +58,15 @@ class SettingsDialog(QDialog):
         self.url_edit = QLineEdit(config.ollama_url)
         form.addRow("Ollama URL:", self.url_edit)
 
+        self.forge_url_edit = QLineEdit(config.forge_url)
+        self.forge_url_edit.setToolTip(
+            "Stable Diffusion Forge's URL (the Image tab). Point this at "
+            "the GPU PC's LAN address, e.g. http://192.168.1.50:7860. "
+            "Credentials (if Forge is gated with --gradio-auth) come from "
+            "FORGE_USERNAME/FORGE_PASSWORD environment variables, not here."
+        )
+        form.addRow("Forge URL:", self.forge_url_edit)
+
         self.openai_base_edit = QLineEdit(config.openai_base_url)
         self.openai_base_edit.setToolTip(
             "Override for Codex-compatible endpoints, OpenRouter, a local "
@@ -148,6 +157,7 @@ class SettingsDialog(QDialog):
         c.backend = self.backend_combo.currentText()
         c.ollama_url = self.url_edit.text().strip() or c.ollama_url
         c.openai_base_url = self.openai_base_edit.text().strip() or c.openai_base_url
+        c.forge_url = self.forge_url_edit.text().strip() or c.forge_url
         c.models["general"] = self.general_edit.currentText().strip() or c.models["general"]
         c.models["story"] = self.story_edit.currentText().strip() or c.models["story"]
         c.models["code"] = self.code_edit.currentText().strip() or c.models["code"]

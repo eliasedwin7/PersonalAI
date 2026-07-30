@@ -17,7 +17,6 @@ from personalai.services.agent_service import (
     AgentError,
     AgentMode,
     AgentService,
-    _parse_tool_call,
     _resolve_in_workspace,
     _tool_edit_file,
     _tool_grep,
@@ -26,6 +25,7 @@ from personalai.services.agent_service import (
     _tool_run_command,
     _tool_search_files,
     _tool_write_file,
+    parse_tool_call,
 )
 from personalai.services.chat_service import ChatService
 
@@ -195,27 +195,27 @@ def _is_windows() -> bool:
     return sys.platform.startswith("win")
 
 
-# ---- _parse_tool_call ----
+# ---- parse_tool_call ----
 
-def test_parse_tool_call_recognizes_whole_message_json():
-    parsed = _parse_tool_call('{"tool": "read_file", "args": {"path": "a.txt"}}')
+def testparse_tool_call_recognizes_whole_message_json():
+    parsed = parse_tool_call('{"tool": "read_file", "args": {"path": "a.txt"}}')
     assert parsed == ("read_file", {"path": "a.txt"})
 
 
-def test_parse_tool_call_ignores_plain_text():
-    assert _parse_tool_call("Here is my final answer.") is None
+def testparse_tool_call_ignores_plain_text():
+    assert parse_tool_call("Here is my final answer.") is None
 
 
-def test_parse_tool_call_ignores_json_mentioned_inside_prose():
-    assert _parse_tool_call('I could call {"tool": "x"} but I will not.') is None
+def testparse_tool_call_ignores_json_mentioned_inside_prose():
+    assert parse_tool_call('I could call {"tool": "x"} but I will not.') is None
 
 
-def test_parse_tool_call_missing_tool_key_is_not_a_call():
-    assert _parse_tool_call('{"args": {"path": "a.txt"}}') is None
+def testparse_tool_call_missing_tool_key_is_not_a_call():
+    assert parse_tool_call('{"args": {"path": "a.txt"}}') is None
 
 
-def test_parse_tool_call_defaults_missing_args_to_empty_dict():
-    assert _parse_tool_call('{"tool": "list_dir"}') == ("list_dir", {})
+def testparse_tool_call_defaults_missing_args_to_empty_dict():
+    assert parse_tool_call('{"tool": "list_dir"}') == ("list_dir", {})
 
 
 # ---- mode gating via run_turn ----

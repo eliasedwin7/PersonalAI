@@ -52,6 +52,13 @@ MAX_LIST_RESULTS = 200       # search_files/grep result cap
 
 MUTATING_TOOLS = frozenset({"write_file", "edit_file", "run_command"})
 
+# Prefix on the synthetic "user" turns run_turn appends to feed a tool's
+# result back to the model - a public constant (not just an inline
+# literal) so a UI displaying the conversation can filter these out:
+# they're bookkeeping for the model's own context, not something the
+# human actually said. See ui/agent_tab.py's transcript rendering.
+TOOL_RESULT_PREFIX = "[tool result for "
+
 
 class AgentMode(str, Enum):
     PLAN = "plan"
@@ -272,7 +279,7 @@ def system_prompt_for(workspace: Path, mode: AgentMode) -> str:
     )
 
 
-def _parse_tool_call(reply: str) -> tuple[str, dict] | None:
+def parse_tool_call(reply: str) -> tuple[str, dict] | None:
     """A reply counts as a tool call only if the WHOLE (trimmed) message
     is a single JSON object shaped like {"tool": ..., "args": ...} -
     anything else (including JSON embedded in a longer explanation) is
@@ -321,7 +328,7 @@ class AgentService:
             reply = self.chat_service.client.chat(messages, model, on_token=on_token)
             conversation.append("assistant", reply)
 
-            parsed = _parse_tool_call(reply)
+            parsed = parse_tool_call(reply)
             if parsed is None:
                 self.chat_service.store.save(conversation)
                 return reply
@@ -331,7 +338,7 @@ class AgentService:
             if on_activity is not None:
                 on_activity(Activity(tool=tool_name, args=tool_args,
                                      result=result_text, applied=applied))
-            conversation.append("user", f"[tool result for {tool_name}]\n{result_text}")
+            conversation.append("user", f"{TOOL_RESULT_PREFIX}{tool_name}]\n{result_text}")
 
         self.chat_service.store.save(conversation)
         return (

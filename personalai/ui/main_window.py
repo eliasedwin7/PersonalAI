@@ -1,6 +1,6 @@
-"""Main window: three tabs (Chat, Voice, Caption Image) over the same
-ChatService/ConversationStore the CLI uses - a session started with
-`myai story` is visible here too, and vice versa.
+"""Main window: five tabs (Chat, Voice, Caption Image, Agent, Image)
+over the same ChatService/ConversationStore the CLI uses - a session
+started with `myai story` is visible here too, and vice versa.
 
 Meant to be a dependable everyday app, not just a thin CLI wrapper:
 window size/position is remembered across restarts, and closing the
@@ -31,8 +31,11 @@ from personalai import __version__
 from personalai.core.config import ConfigStore
 from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
+from personalai.services.image_service import build_forge_client
+from personalai.ui.agent_tab import AgentTab
 from personalai.ui.caption_tab import CaptionTab
 from personalai.ui.chat_tab import ChatTab
+from personalai.ui.image_tab import ImageTab
 from personalai.ui.settings_dialog import SettingsDialog
 from personalai.ui.voice_tab import VoiceTab
 from personalai.ui.workers import TaskRunner
@@ -59,6 +62,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(ChatTab(chat_service, self.task_runner), "Chat")
         self.tabs.addTab(VoiceTab(chat_service, self.task_runner, config_store), "Voice")
         self.tabs.addTab(CaptionTab(chat_service, self.task_runner), "Caption Image")
+        self.tabs.addTab(AgentTab(chat_service, self.task_runner, config_store), "Agent")
+        self.image_tab = ImageTab(chat_service, self.task_runner)
+        self.tabs.addTab(self.image_tab, "Image")
 
         self._build_menu()
 
@@ -125,6 +131,11 @@ class MainWindow(QMainWindow):
             # immediately instead of needing an app restart.
             self.chat_service.client = build_llm_client(self.chat_service.config)
             self._check_health()
+            # ImageTab keeps its own ForgeClient (independent of the
+            # chat backend) - rebuild it too so a changed Forge URL
+            # takes effect immediately, same reasoning as the line above.
+            self.image_tab.client = build_forge_client(self.chat_service.config)
+            self.image_tab._check_health()
 
     def _check_health(self) -> None:
         self.task_runner.submit(self.chat_service.client.is_available,

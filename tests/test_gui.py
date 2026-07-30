@@ -15,6 +15,7 @@ from personalai.core.config import Config
 from personalai.core.conversation import ConversationStore
 from personalai.services import voice_service
 from personalai.services.chat_service import ChatService
+from personalai.services.image_service import ForgeClient
 from personalai.services.ollama_client import OllamaClient
 
 
@@ -45,6 +46,17 @@ def _fake_ollama_list_models(monkeypatch):
     that off the real network in every GUI test, same spirit as the CLI
     suite's autouse Ollama fake."""
     monkeypatch.setattr(OllamaClient, "list_models", lambda self: [])
+
+
+@pytest.fixture(autouse=True)
+def _fake_forge(monkeypatch):
+    """ImageTab probes Forge (health + checkpoint list) as soon as it's
+    constructed - keep that off the real network in every GUI test
+    (there's usually no Forge server on this machine at all), same
+    spirit as the Ollama/mic fakes above. Individual Image-tab tests
+    override these to test the probing itself."""
+    monkeypatch.setattr(ForgeClient, "health", lambda self: False)
+    monkeypatch.setattr(ForgeClient, "list_checkpoints", lambda self: [])
 
 
 @pytest.fixture(autouse=True)
@@ -595,10 +607,12 @@ def test_main_window_constructs_with_all_tabs(qtbot, chat_service, tmp_path):
 
     window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
     qtbot.addWidget(window)
-    assert window.tabs.count() == 3
+    assert window.tabs.count() == 5
     assert window.tabs.tabText(0) == "Chat"
     assert window.tabs.tabText(1) == "Voice"
     assert window.tabs.tabText(2) == "Caption Image"
+    assert window.tabs.tabText(3) == "Agent"
+    assert window.tabs.tabText(4) == "Image"
 
 
 def test_main_window_remembers_geometry_across_restarts(
@@ -636,6 +650,168 @@ def test_main_window_remembers_geometry_across_restarts(
     qtbot.addWidget(window2)
 
     assert restored == [base64.b64decode(reloaded_config.window_geometry)]
+
+
+def test_agent_tab_constructs_with_defaults(qtbot, chat_service, task_runner):
+    from personalai.ui.agent_tab import AgentTab
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    assert tab.workspace_edit.text() == ""
+    assert tab._current_mode().value == "plan"
+
+
+def test_agent_tab_requires_a_workspace_before_sending(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    """_send() pops a real QMessageBox.warning() when no workspace is
+    set - that's a MODAL call (its own event loop, blocks until
+    dismissed), so it must be stubbed out here or this test hangs
+    forever waiting for a click that will never come."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from personalai.ui.agent_tab import AgentTab
+
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.input_edit.setPlainText("do something")
+    tab._send()  # no workspace chosen - must not crash or start a task
+    assert tab._sending is False
+
+
+def test_agent_tab_plan_mode_send_shows_final_reply_and_stays_readonly(
+    qtbot, chat_service, task_runner, tmp_path
+):
+    """A plain final-answer reply (no tool call) should render in the
+    transcript and never touch the workspace folder."""
+    from personalai.ui.agent_tab import AgentTab
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    chat_service.client.reply = "Sure, here's the plan."
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.workspace_edit.setText(str(workspace))
+    tab.input_edit.setPlainText("what would you do?")
+    tab._send()
+
+    qtbot.waitUntil(lambda: "Sure, here's the plan." in tab.transcript.toPlainText(),
+                    timeout=5000)
+    assert "what would you do?" in tab.transcript.toPlainText()
+    assert list(workspace.iterdir()) == []
+
+
+def test_agent_tab_filters_tool_call_bookkeeping_from_transcript(
+    qtbot, chat_service, task_runner, tmp_path
+):
+    """A JSON tool-call reply and its synthetic tool-result echo must
+    show up in the Activity log, not as if the model "said" them in the
+    conversation transcript."""
+    from personalai.ui.agent_tab import AgentTab
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    replies = iter([
+        '{"tool": "list_dir", "args": {}}',
+        "Nothing's there yet.",
+    ])
+    chat_service.client.chat = lambda messages, model, on_token=None, images=None: next(replies)
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.workspace_edit.setText(str(workspace))
+    tab.input_edit.setPlainText("what's in this folder?")
+    tab._send()
+
+    qtbot.waitUntil(lambda: "Nothing's there yet." in tab.transcript.toPlainText(),
+                    timeout=5000)
+    assert "list_dir" not in tab.transcript.toPlainText()
+    assert "[tool result for" not in tab.transcript.toPlainText()
+    assert "list_dir" in tab.activity_log.toPlainText()
+
+
+def test_image_tab_constructs_offline(qtbot, chat_service, task_runner):
+    from personalai.ui.image_tab import ImageTab
+
+    tab = ImageTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    qtbot.waitUntil(lambda: "offline" in tab.status_label.text(), timeout=5000)
+    assert tab.reference_path is None
+    assert tab.denoise_spin.isEnabled() is False
+
+
+def test_image_tab_requires_a_prompt_before_generating(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    """Same modal-dialog hazard as the Agent tab's equivalent test -
+    _generate() pops a real QMessageBox.warning() on an empty prompt,
+    which must be stubbed or this hangs on its own event loop."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from personalai.ui.image_tab import ImageTab
+
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    tab = ImageTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._generate()  # empty prompt - must not crash or start a task
+    assert tab._working is False
+
+
+def test_image_tab_generate_saves_and_shows_result(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from personalai.ui.image_tab import ImageTab
+
+    fake_png = b"\x89PNG\r\n\x1a\nfake bytes"
+    monkeypatch.setattr(ForgeClient, "txt2img", lambda self, *a, **k: fake_png)
+    chat_service.config.image_save_dir = str(tmp_path / "gen")
+
+    tab = ImageTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.prompt_edit.setPlainText("a red circle on white background")
+    tab._generate()
+
+    qtbot.waitUntil(lambda: tab.last_saved_path is not None, timeout=5000)
+    assert tab.last_saved_path.read_bytes() == fake_png
+    assert tab.last_saved_path.parent == tmp_path / "gen"
+    assert tab.save_as_btn.isEnabled() is True
+
+
+def test_image_tab_reference_image_enables_denoise_and_uses_img2img(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from PySide6.QtWidgets import QFileDialog
+
+    from personalai.ui.image_tab import ImageTab
+
+    reference = tmp_path / "ref.png"
+    reference.write_bytes(b"fake reference bytes")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(reference), ""))
+
+    captured = {}
+
+    def fake_img2img(self, prompt, reference_image, **kwargs):
+        captured["prompt"] = prompt
+        captured["reference_image"] = reference_image
+        return b"\x89PNG fake"
+
+    monkeypatch.setattr(ForgeClient, "img2img", fake_img2img)
+    chat_service.config.image_save_dir = str(tmp_path / "gen")
+
+    tab = ImageTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._choose_reference()
+    assert tab.denoise_spin.isEnabled() is True
+
+    tab.prompt_edit.setPlainText("make it blue")
+    tab._generate()
+
+    qtbot.waitUntil(lambda: tab.last_saved_path is not None, timeout=5000)
+    assert captured["prompt"] == "make it blue"
+    assert captured["reference_image"] == b"fake reference bytes"
 
 
 def test_main_window_close_without_tray_accepts(qtbot, chat_service, tmp_path, monkeypatch):
