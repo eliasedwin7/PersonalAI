@@ -1,0 +1,7 @@
+# Runtime dependencies for the "personalai" conda env.
+#
+# Deliberately tiny: PersonalAI's own job is talking to a local Ollama
+# server over plain HTTP and managing conversation files - it does not
+# run any model itself, so it needs none of the heavy ML libraries
+# (torch, onnxruntime, etc.) that Ollama itself depends on.
+requests>=2.32
