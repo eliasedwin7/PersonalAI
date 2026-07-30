@@ -189,7 +189,7 @@ class VoiceTab(QWidget):
         # ignore clicks while transcribing/thinking/speaking - one turn at a time
 
     def _start_listening(self) -> None:
-        self._recorder = voice_service.Recorder()
+        self._recorder = voice_service.Recorder(device=self.chat_service.config.mic_device)
         try:
             self._recorder.start()
         except PersonalAIError as exc:
@@ -215,7 +215,16 @@ class VoiceTab(QWidget):
             # Never hand faster-whisper pure silence - that's exactly what
             # makes Whisper models hallucinate text like "you" or "Thank
             # you." - so just go back to idle instead of transcribing.
-            self.status_label.setText("Didn't hear anything - tap to try again")
+            # The peak level is shown so "it's not hearing me" (mic/OS
+            # input problem - peak stays near 0) can be told apart from
+            # "it heard something but not clearly enough" (peak is
+            # nonzero but this module's sensitivity needs adjusting).
+            peak = recorder.peak_rms()
+            hint = " - try Settings > Microphone" if peak < 5 else ""
+            self.status_label.setText(
+                f"Didn't hear anything (peak input level: {peak:.0f}){hint} - "
+                "tap to try again"
+            )
             self._state = "idle"
             self.orb.set_state("idle")
             return

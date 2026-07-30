@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from personalai.core.config import BACKEND_NAMES, Config, ConfigStore
+from personalai.services import voice_service
 from personalai.services.voice_service import WHISPER_MODEL_SIZES
 
 
@@ -80,6 +81,25 @@ class SettingsDialog(QDialog):
         form.addRow("Vision model:", self.vision_edit)
         form.addRow("Context char limit:", self.limit_spin)
 
+        self.mic_combo = QComboBox()
+        self.mic_combo.addItem("System default", None)
+        for idx, name, is_default in voice_service.list_input_devices_detailed():
+            label = f"[{idx}] {name}" + (" (default)" if is_default else "")
+            self.mic_combo.addItem(label, idx)
+        if config.mic_device is not None:
+            found = self.mic_combo.findData(config.mic_device)
+            if found >= 0:
+                self.mic_combo.setCurrentIndex(found)
+        self.mic_combo.setToolTip(
+            "If the Voice tab says \"Didn't hear anything\" even while you're "
+            "talking, your OS's default input device may not actually carry "
+            "audio - a known issue on some laptops (Realtek Smart Sound "
+            "Technology routing the real mic through a different endpoint). "
+            "Try picking a specific device here, or run `myai mic-test "
+            "--device N` first to check which one actually works."
+        )
+        form.addRow("Microphone:", self.mic_combo)
+
         self.whisper_combo = QComboBox()
         self.whisper_combo.addItems(list(WHISPER_MODEL_SIZES))
         self.whisper_combo.setCurrentText(config.whisper_model)
@@ -133,6 +153,7 @@ class SettingsDialog(QDialog):
         c.models["code"] = self.code_edit.currentText().strip() or c.models["code"]
         c.models["vision"] = self.vision_edit.currentText().strip() or c.models["vision"]
         c.context_char_limit = self.limit_spin.value()
+        c.mic_device = self.mic_combo.currentData()
         c.whisper_model = self.whisper_combo.currentText()
         self.store.save(c)
         self.accept()

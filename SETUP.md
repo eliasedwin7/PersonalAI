@@ -459,17 +459,38 @@ smaller model size (`tiny.en`) in Settings if it's consistently slow;
 like text models, this runs on CPU and a bigger size is a real
 speed/accuracy trade-off, not a bug.
 
-**It keeps transcribing to "you" (or "Thank you.") even though I said
-something else, or it stops recording before I've finished talking**
-This means it isn't actually picking up your voice as speech - either
-your mic's input level is too quiet (Windows Sound settings → Input →
-raise the microphone volume/gain) or the wrong microphone is set as
-default. The Voice tab deliberately skips transcription and shows
-"Didn't hear anything" when it detects true silence, specifically to
-avoid this - if you're instead getting hallucinated text, the recording
-does contain *some* signal, just not one your mic is delivering loud
-enough to register clearly as speech. Also check you're not talking
-into a muted or disconnected microphone.
+**It keeps transcribing to "you" (or "Thank you."), or the Voice tab
+always says "Didn't hear anything" even when I'm talking**
+Run the built-in diagnostic to find out whether the mic itself is the
+problem, independent of the Voice tab:
+```powershell
+myai mic-test
+```
+It lists your input devices, records a few seconds while you talk, and
+prints the actual levels it saw plus a verdict. A peak level near 0
+means the mic isn't being picked up at all - check Windows Sound
+settings → Input: is the right device selected as default, is it
+muted, is the volume/gain turned up, is it actually plugged in/paired?
+If `mic-test` shows healthy levels but the Voice tab still says
+"Didn't hear anything", it now also prints the peak level right in its
+own status message ("Didn't hear anything (peak input level: N)") -
+that's useful detail to include if you need to report it, since it
+means the app's own sensitivity needs adjusting rather than the mic.
+
+**On some newer laptops, `mic-test` shows several devices with the same
+mic's name** (e.g. multiple "Microphone Array" entries) - only one of
+them may actually carry sound. This is a Realtek/Intel "Smart Sound
+Technology" thing: the OS-picked default is often a legacy endpoint
+that's silently disconnected from the real hardware, while the one that
+works is usually named with "**with SST**" in it. Use `myai mic-test
+--device N` to try each one from the list until you find one with real
+levels, then `myai config set mic_device N` (or Settings' Microphone
+dropdown) to make the Voice tab use it. These "with SST" endpoints can
+also be flaky about being *reopened* - if one that worked suddenly
+stops responding to `mic-test` too (not just the Voice tab), that's a
+driver-level lockup, not this app losing track of anything; restarting
+the "Windows Audio" service (services.msc) or rebooting typically
+clears it.
 
 **The built .exe won't launch, or the mic/read-aloud controls work in
 `myai gui` but not in the frozen .exe**

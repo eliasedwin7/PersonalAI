@@ -156,8 +156,33 @@ def test_config_set_openai_base_url(isolated_home, capsys):
 def test_config_show_includes_voice_settings(isolated_home, capsys):
     cli.main(["config", "show"])
     out = capsys.readouterr().out
+    assert "mic_device          = default" in out
     assert "whisper_model       = base.en" in out
     assert "read_replies_aloud  = True" in out
+
+
+def test_config_set_mic_device(isolated_home, capsys):
+    cli.main(["config", "set", "mic_device", "15"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "mic_device          = 15" in out
+
+
+def test_config_set_mic_device_back_to_default(isolated_home, capsys):
+    cli.main(["config", "set", "mic_device", "15"])
+    capsys.readouterr()
+    cli.main(["config", "set", "mic_device", "default"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "mic_device          = default" in out
+
+
+def test_config_set_mic_device_rejects_non_integer(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "mic_device", "not-a-number"])
+    assert exit_code == 1
+    assert "device index" in capsys.readouterr().err
 
 
 def test_config_set_whisper_model(isolated_home, capsys):
@@ -320,6 +345,87 @@ def test_caption_custom_session(isolated_home, tmp_path):
     cli.main(["caption", str(image), "--session", "my-photos"])
     assert "my-photos" in ConversationStore().list_all()
     assert "vision" not in ConversationStore().list_all()
+
+
+def test_mic_test_reports_error_when_sounddevice_missing(isolated_home, monkeypatch, capsys):
+    from personalai.services import voice_service
+
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: False)
+    exit_code = cli.main(["mic-test"])
+    assert exit_code == 1
+    assert "sounddevice" in capsys.readouterr().err
+
+
+def test_mic_test_diagnoses_low_levels_as_mic_problem(isolated_home, monkeypatch, capsys):
+    from personalai.services import voice_service
+
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "list_input_devices",
+                        lambda: ["[0] Fake Mic (default)"])
+    monkeypatch.setattr(voice_service, "mic_level_test",
+                        lambda seconds, device=None: (5.0, [5.0, 3.0]))
+
+    exit_code = cli.main(["mic-test", "--seconds", "1"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Fake Mic" in out
+    assert "isn't actually being picked up" in out
+
+
+def test_mic_test_diagnoses_good_levels(isolated_home, monkeypatch, capsys):
+    from personalai.services import voice_service
+
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "list_input_devices", list)
+    monkeypatch.setattr(voice_service, "mic_level_test",
+                        lambda seconds, device=None: (900.0, [900.0]))
+
+    exit_code = cli.main(["mic-test"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Real audio is being captured" in out
+
+
+def test_mic_test_uses_explicit_device_flag_over_config(isolated_home, monkeypatch, capsys):
+    from personalai.services import voice_service
+
+    cli.main(["config", "set", "mic_device", "5"])
+    capsys.readouterr()
+
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "list_input_devices", list)
+    seen = {}
+
+    def fake_mic_level_test(seconds, device=None):
+        seen["device"] = device
+        return (900.0, [900.0])
+
+    monkeypatch.setattr(voice_service, "mic_level_test", fake_mic_level_test)
+
+    exit_code = cli.main(["mic-test", "--device", "9"])
+    assert exit_code == 0
+    assert seen["device"] == 9  # --device wins over the configured mic_device (5)
+
+
+def test_mic_test_falls_back_to_configured_device(isolated_home, monkeypatch, capsys):
+    from personalai.services import voice_service
+
+    cli.main(["config", "set", "mic_device", "5"])
+    capsys.readouterr()
+
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "list_input_devices", list)
+    seen = {}
+
+    def fake_mic_level_test(seconds, device=None):
+        seen["device"] = device
+        return (900.0, [900.0])
+
+    monkeypatch.setattr(voice_service, "mic_level_test", fake_mic_level_test)
+
+    exit_code = cli.main(["mic-test"])
+    assert exit_code == 0
+    assert seen["device"] == 5
 
 
 def test_gui_command_reports_missing_pyside_cleanly(isolated_home, monkeypatch, capsys):

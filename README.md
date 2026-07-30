@@ -95,6 +95,9 @@ myai config set KEY VALUE          e.g. backend anthropic
 myai gui                           launch the desktop app (see also:
                                     Run-PersonalAI-GUI.bat, or build a
                                     real .exe - Build-PersonalAI-Exe.ps1)
+myai mic-test [--seconds N]        diagnose whether your mic is being
+                                    picked up at all (independent of the
+                                    Voice tab's own detection)
 ```
 
 Run any command with no message (`myai story`) to drop into an

@@ -54,6 +54,10 @@ class Config:
                                                           # server, etc.
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
     context_char_limit: int = 12000  # rough guard on --context file size, see context_service.py
+    mic_device: int | None = None    # specific input device index (None = OS default -
+                                       # some laptops' "default" mic endpoint is silent due to
+                                       # driver routing, e.g. Realtek Smart Sound Technology;
+                                       # `myai mic-test` lists indices, Settings has a picker)
     whisper_model: str = "base.en"   # voice input model size, see services/voice_service.py
     read_replies_aloud: bool = True   # Voice tab's "speak replies aloud" checkbox default -
                                        # on by default since talking back is the point of that

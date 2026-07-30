@@ -42,8 +42,13 @@ WHISPER_MODEL_SIZES = ("tiny.en", "base.en", "small.en")
 # gain/sensitivity. So instead of a hardcoded loudness cutoff, the
 # recorder tracks a slowly-adapting noise floor and calls anything a
 # fixed margin above IT "speech" - see Recorder._on_chunk.
-SILENCE_RMS_MULTIPLIER = 3.0   # "speech" = at least this many times the noise floor...
-SILENCE_RMS_FLOOR = 60.0       # ...plus this flat minimum, for near-silent noise floors
+SILENCE_RMS_MULTIPLIER = 1.8   # "speech" = at least this many times the noise floor...
+SILENCE_RMS_FLOOR = 25.0       # ...plus this flat minimum, for near-silent noise floors.
+                                # Kept deliberately low/permissive: a false "heard speech"
+                                # still gets caught by transcribe()'s vad_filter=True, but a
+                                # false "didn't hear anything" has no such second chance -
+                                # see Recorder.peak_rms(), surfaced in the GUI, if this still
+                                # needs raising/lowering for a specific mic's real levels.
 TRAILING_SILENCE_AUTO_STOP_S = 1.1  # how long you have to go quiet before it auto-stops
 MAX_RECORDING_S = 30.0         # hard cap regardless of silence detection
 
@@ -95,11 +100,16 @@ class Recorder:
     doesn't need a second manual tap to end the recording.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, device: int | None = None) -> None:
+        # device=None means "whatever sounddevice/the OS calls default" -
+        # not always reliable (see list_input_devices_detailed()'s
+        # docstring), so callers can pass a specific index from Config.mic_device.
+        self._device = device
         self._frames: list = []
         self._stream = None
         self._noise_floor: float = 0.0
         self._heard_speech = False
+        self._peak_rms: float = 0.0
         self._silence_started_at: float | None = None
         self._started_at: float = 0.0
 
@@ -120,6 +130,7 @@ class Recorder:
         # is the real floor until quiet chunks actually arrive to adapt it.
         self._noise_floor = 0.0
         self._heard_speech = False
+        self._peak_rms = 0.0
         self._silence_started_at = None
         self._started_at = time.monotonic()
 
@@ -128,7 +139,8 @@ class Recorder:
             self._on_chunk(indata)
 
         self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=_callback
+            samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=_callback,
+            device=self._device,
         )
         self._stream.start()
 
@@ -139,6 +151,7 @@ class Recorder:
 
         rms = float(np.sqrt(np.mean(chunk.astype("float64") ** 2)))
         now = time.monotonic()
+        self._peak_rms = max(self._peak_rms, rms)
 
         speech_threshold = self._noise_floor * SILENCE_RMS_MULTIPLIER + SILENCE_RMS_FLOOR
         if rms >= speech_threshold:
@@ -157,6 +170,16 @@ class Recorder:
         whole time", the signal to skip transcription entirely rather
         than hand faster-whisper nothing and get a hallucinated reply."""
         return self._heard_speech
+
+    def peak_rms(self) -> float:
+        """The loudest single chunk seen this recording (int16 RMS,
+        0-32767 scale). Surfaced in the UI when heard_speech() is False
+        so "it's not hearing me" can be told apart from "the mic itself
+        isn't picking up sound at all" - a near-zero peak points at the
+        mic/OS input settings, a peak in the hundreds-or-more that still
+        didn't cross the speech threshold points at this module's
+        sensitivity tuning instead."""
+        return self._peak_rms
 
     def should_auto_stop(self) -> bool:
         """Call periodically (e.g. from a GUI-thread timer) while
@@ -265,3 +288,84 @@ def speak(text: str) -> None:
         _tts_engine = pyttsx3.init()
     _tts_engine.say(text)
     _tts_engine.runAndWait()
+
+
+MIC_TEST_WINDOW_S = 0.25
+
+
+def list_input_devices_detailed() -> list[tuple[int, str, bool]]:
+    """(index, name, is_default) for every input-capable device.
+
+    Why this exists at all: PortAudio/sounddevice's notion of "the
+    default input device" is just whatever the OS mixer says - and on
+    at least one real machine this was built against, that "default"
+    (a plain "Microphone Array" endpoint) silently returned all-zero
+    audio, while a *different* endpoint for the same physical mic
+    ("... with SST", reached only via the WDM-KS host API) carried the
+    actual signal. That's a known class of issue with laptops using
+    Intel/Realtek "Smart Sound Technology" DSP audio pipelines, not a
+    bug in this app, but it does mean "just use the default" isn't
+    trustworthy enough to hardcode - hence exposing a real device
+    picker (Config.mic_device, Settings' Microphone dropdown, `myai
+    mic-test --device N`) instead of only ever trusting index 0/default.
+    """
+    try:
+        import sounddevice as sd
+    except (ImportError, OSError):
+        return []
+    try:
+        devices = sd.query_devices()
+        default_input = sd.default.device[0]
+    except (OSError, ValueError):
+        return []
+    return [
+        (i, dev["name"], i == default_input)
+        for i, dev in enumerate(devices)
+        if dev.get("max_input_channels", 0) > 0
+    ]
+
+
+def list_input_devices() -> list[str]:
+    """Terminal-friendly formatting of list_input_devices_detailed(),
+    e.g. for `myai mic-test`'s device listing."""
+    return [
+        f"[{i}] {name}" + (" (default)" if is_default else "")
+        for i, name, is_default in list_input_devices_detailed()
+    ]
+
+
+def mic_level_test(seconds: float = 4.0, device: int | None = None) -> tuple[float, list[float]]:
+    """Records `seconds` of audio from `device` (None = OS default) and
+    returns (peak_rms, levels) - one RMS value per ~0.25s window. A
+    quick, visible way to answer "is my mic actually being picked up at
+    all", independent of the Voice tab's own silence detection - see
+    `myai mic-test`.
+
+    Uses a single blocking sd.rec()/sd.wait() call rather than
+    InputStream's callback mode - simpler for a one-shot diagnostic, and
+    avoids any ambiguity about whether a callback actually fired."""
+    try:
+        import numpy as np
+        import sounddevice as sd
+    except (ImportError, OSError) as exc:
+        raise VoiceUnavailable(
+            "Needs the 'sounddevice' package (and a working microphone): "
+            "pip install sounddevice"
+        ) from exc
+
+    frames_per_window = int(SAMPLE_RATE * MIC_TEST_WINDOW_S)
+    total_frames = int(SAMPLE_RATE * seconds)
+    recording = sd.rec(total_frames, samplerate=SAMPLE_RATE, channels=1,
+                       dtype="int16", device=device)
+    sd.wait()
+
+    audio = recording.flatten().astype("float64")
+    if audio.size == 0:
+        return 0.0, []
+    levels = [
+        float(np.sqrt(np.mean(audio[start:start + frames_per_window] ** 2)))
+        for start in range(0, len(audio), frames_per_window)
+        if len(audio[start:start + frames_per_window]) > 0
+    ]
+    peak = max(levels) if levels else 0.0
+    return peak, levels

@@ -13,6 +13,7 @@
     myai config show
     myai config set KEY VALUE       # e.g. backend anthropic, models.story llama3.1
     myai gui                        # launch the desktop app
+    myai mic-test [--seconds N]     # diagnose "is my mic being picked up at all"
 
 The chat backend is swappable: Ollama (local, default), Anthropic
 (Claude), or an OpenAI-compatible API (OpenAI itself, Codex-style
@@ -195,6 +196,72 @@ def cmd_gui(args: argparse.Namespace) -> int:
     return gui_main()
 
 
+def cmd_mic_test(args: argparse.Namespace) -> int:
+    """Diagnose "is my mic being picked up at all" independent of the
+    Voice tab - records a few seconds and prints the actual input
+    levels, so a mic/OS-settings problem can be told apart from the
+    Voice tab's own silence-detection sensitivity. Also the tool to use
+    if the OS's own "default" input device turns out to be silent (a
+    real, observed issue on some laptops - see
+    voice_service.list_input_devices_detailed()'s docstring): pass
+    --device to try a specific index from the list this prints, and
+    `myai config set mic_device N` to make the Voice tab use it too."""
+    from personalai.services import voice_service
+
+    if not voice_service.is_recording_available():
+        print("[error] The 'sounddevice' package isn't installed: "
+              "pip install sounddevice", file=sys.stderr)
+        return 1
+
+    devices = voice_service.list_input_devices()
+    if devices:
+        print("Input devices found:")
+        for d in devices:
+            print(f"  {d}")
+    else:
+        print("[warning] Could not list input devices - continuing anyway.")
+
+    config = config_mod.ConfigStore().load()
+    device = args.device if args.device is not None else config.mic_device
+    device_note = f"device [{device}]" if device is not None else "the default microphone"
+    seconds = args.seconds
+    print(f"\nRecording {seconds:g}s from {device_note} - talk normally...")
+    try:
+        peak, levels = voice_service.mic_level_test(seconds, device=device)
+    except PersonalAIError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+
+    print()
+    for i, level in enumerate(levels):
+        bar = "#" * min(60, int(level / 40))
+        print(f"  {i * voice_service.MIC_TEST_WINDOW_S:4.2f}s  {level:7.0f}  {bar}")
+
+    print(f"\nPeak input level: {peak:.0f} (int16 RMS, 0-32767 scale)")
+    if peak < 80:
+        print(
+            "[diagnosis] Levels stayed very low the whole time - this looks like "
+            f"{device_note} isn't actually being picked up. Try another device from "
+            "the list above with --device N, or check Windows Sound settings > "
+            "Input (is the right device selected as default, is it muted, is the "
+            "volume/gain turned up). Once you find one that works, "
+            "`myai config set mic_device N` makes the Voice tab use it too.\n"
+            "If a device with \"with SST\" in its name (Smart Sound Technology, "
+            "common on newer Intel/Realtek laptops) is the only one that ever "
+            "showed real levels but has now stopped responding entirely (even "
+            "this test fails on it), that's a driver-level lockup outside this "
+            "app's control - restarting the \"Windows Audio\" service or "
+            "rebooting typically clears it."
+        )
+    else:
+        print(
+            "[diagnosis] Real audio is being captured. If the Voice tab still "
+            "says \"Didn't hear anything\", its sensitivity may need adjusting "
+            "rather than the mic itself."
+        )
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     config_mod.ensure_dirs()
     store = ConversationStore()
@@ -269,6 +336,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"ollama_url          = {config.ollama_url}")
     print(f"openai_base_url     = {config.openai_base_url}")
     print(f"context_char_limit  = {config.context_char_limit}")
+    print(f"mic_device          = {'default' if config.mic_device is None else config.mic_device}")
     print(f"whisper_model       = {config.whisper_model}")
     print(f"read_replies_aloud  = {config.read_replies_aloud}")
     print("models:")
@@ -303,6 +371,16 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         except ValueError:
             print("context_char_limit must be a number.", file=sys.stderr)
             return 1
+    elif key == "mic_device":
+        if value.lower() in ("default", "none", ""):
+            config.mic_device = None
+        else:
+            try:
+                config.mic_device = int(value)
+            except ValueError:
+                print("mic_device must be a device index (see: myai mic-test) "
+                      "or 'default'.", file=sys.stderr)
+                return 1
     elif key == "whisper_model":
         from personalai.services.voice_service import WHISPER_MODEL_SIZES
         if value not in WHISPER_MODEL_SIZES:
@@ -325,8 +403,8 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         config.models[task] = value
     else:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
-              "context_char_limit, whisper_model, read_replies_aloud, models.general, "
-              "models.story, models.code, models.vision", file=sys.stderr)
+              "context_char_limit, mic_device, whisper_model, read_replies_aloud, "
+              "models.general, models.story, models.code, models.vision", file=sys.stderr)
         return 1
     store.save(config)
     print(f"{key} = {value}")
@@ -366,6 +444,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_gui = sub.add_parser("gui", help="launch the desktop app")
     p_gui.set_defaults(func=cmd_gui)
+
+    p_mic_test = sub.add_parser(
+        "mic-test", help="diagnose whether your microphone is being picked up at all"
+    )
+    p_mic_test.add_argument("--seconds", type=float, default=4.0,
+                            help="how long to record (default: 4)")
+    p_mic_test.add_argument("--device", type=int, default=None,
+                            help="try a specific device index instead of "
+                                 "config's mic_device / the OS default")
+    p_mic_test.set_defaults(func=cmd_mic_test)
 
     p_list = sub.add_parser("list", help="list saved conversations")
     p_list.set_defaults(func=cmd_list)

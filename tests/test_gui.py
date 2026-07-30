@@ -47,6 +47,15 @@ def _fake_ollama_list_models(monkeypatch):
     monkeypatch.setattr(OllamaClient, "list_models", lambda self: [])
 
 
+@pytest.fixture(autouse=True)
+def _fake_mic_devices(monkeypatch):
+    """SettingsDialog also probes real audio hardware for its Microphone
+    picker - keep that off real (and possibly absent/CI-flaky) hardware
+    in every GUI test; individual tests override this to test the
+    picker itself."""
+    monkeypatch.setattr(voice_service, "list_input_devices_detailed", list)
+
+
 @pytest.fixture
 def chat_service(tmp_path):
     return ChatService(
@@ -258,6 +267,9 @@ def test_voice_tab_full_turn_transcribes_replies_and_speaks(
     monkeypatch.setattr(voice_service, "is_speech_available", lambda: True)
 
     class FakeRecorder:
+        def __init__(self_inner, device=None):
+            pass
+
         def start(self_inner):
             pass
 
@@ -300,6 +312,9 @@ def test_voice_tab_skips_transcription_when_no_speech_heard(
     monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
 
     class SilentFakeRecorder:
+        def __init__(self_inner, device=None):
+            pass
+
         def start(self_inner):
             pass
 
@@ -308,6 +323,9 @@ def test_voice_tab_skips_transcription_when_no_speech_heard(
 
         def heard_speech(self_inner):
             return False
+
+        def peak_rms(self_inner):
+            return 12.0
 
         def should_auto_stop(self_inner):
             return False
@@ -340,7 +358,7 @@ def test_voice_tab_auto_stops_without_a_second_tap(
     monkeypatch.setattr(voice_service, "is_speech_available", lambda: False)
 
     class AutoStoppingRecorder:
-        def __init__(self_inner):
+        def __init__(self_inner, device=None):
             self_inner.polls = 0
 
         def start(self_inner):
@@ -472,6 +490,48 @@ def test_settings_dialog_model_combo_populated_from_ollama(qtbot, tmp_path, monk
     items = [dialog.general_edit.itemText(i) for i in range(dialog.general_edit.count())]
     assert "llama3.1" in items
     assert "mixtral" in items
+
+
+def test_settings_dialog_microphone_combo_populated_and_saves(
+    qtbot, tmp_path, monkeypatch
+):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    monkeypatch.setattr(
+        voice_service, "list_input_devices_detailed",
+        lambda: [(0, "Speakers", False), (1, "Built-in Mic", True)],
+    )
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+
+    labels = [dialog.mic_combo.itemText(i) for i in range(dialog.mic_combo.count())]
+    assert labels == ["System default", "[0] Speakers", "[1] Built-in Mic (default)"]
+    assert dialog.mic_combo.currentIndex() == 0  # config.mic_device is None by default
+
+    dialog.mic_combo.setCurrentIndex(1)
+    dialog._save()
+
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.mic_device == 0
+
+
+def test_settings_dialog_microphone_combo_preselects_configured_device(
+    qtbot, tmp_path, monkeypatch
+):
+    from personalai.core.config import Config, ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    monkeypatch.setattr(
+        voice_service, "list_input_devices_detailed",
+        lambda: [(0, "Speakers", False), (1, "Built-in Mic", True)],
+    )
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(Config(mic_device=1), store)
+    qtbot.addWidget(dialog)
+
+    assert dialog.mic_combo.currentData() == 1
 
 
 def test_settings_dialog_whisper_model_saves(qtbot, tmp_path):
