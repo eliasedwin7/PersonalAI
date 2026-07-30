@@ -428,6 +428,138 @@ def test_mic_test_falls_back_to_configured_device(isolated_home, monkeypatch, ca
     assert seen["device"] == 5
 
 
+def test_config_show_includes_agent_and_image_settings(isolated_home, capsys):
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "agent_workspace     = (not set)" in out
+    assert "agent_mode          = plan" in out
+    assert "forge_url           = http://127.0.0.1:7860" in out
+
+
+def test_config_set_agent_workspace_requires_existing_folder(isolated_home, tmp_path, capsys):
+    exit_code = cli.main(["config", "set", "agent_workspace", str(tmp_path / "nope")])
+    assert exit_code == 1
+    assert "existing folder" in capsys.readouterr().err
+
+    exit_code = cli.main(["config", "set", "agent_workspace", str(tmp_path)])
+    assert exit_code == 0
+    cli.main(["config", "show"])
+    assert str(tmp_path.resolve()) in capsys.readouterr().out
+
+
+def test_config_set_agent_mode_rejects_unknown(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "agent_mode", "yolo"])
+    assert exit_code == 1
+    assert "Unknown agent_mode" in capsys.readouterr().err
+
+
+def test_config_set_agent_mode_accepts_known_values(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "agent_mode", "auto"])
+    assert exit_code == 0
+    cli.main(["config", "show"])
+    assert "agent_mode          = auto" in capsys.readouterr().out
+
+
+def test_config_set_forge_url(isolated_home, capsys):
+    cli.main(["config", "set", "forge_url", "http://192.168.1.50:7860"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    assert "forge_url           = http://192.168.1.50:7860" in capsys.readouterr().out
+
+
+def test_agent_command_reports_missing_workspace(isolated_home, capsys):
+    exit_code = cli.main(["agent", "do something"])
+    assert exit_code == 1
+    assert "No workspace folder set" in capsys.readouterr().err
+
+
+def test_agent_command_reports_missing_workspace_folder(isolated_home, tmp_path, capsys):
+    exit_code = cli.main(["agent", "--workspace", str(tmp_path / "nope"), "do something"])
+    assert exit_code == 1
+    assert "Workspace folder not found" in capsys.readouterr().err
+
+
+def test_agent_command_one_shot_plan_mode(isolated_home, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(OllamaClient, "chat",
+                        lambda self, messages, model, on_token=None, images=None:
+                        (on_token("just a plain reply") if on_token else None)
+                        or "just a plain reply")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+
+    exit_code = cli.main(["agent", "--workspace", str(workspace), "--mode", "plan", "hello"])
+    assert exit_code == 0
+    assert "just a plain reply" in capsys.readouterr().out
+
+
+def test_image_command_saves_generated_png(isolated_home, tmp_path, monkeypatch, capsys):
+    from personalai.services import image_service
+
+    fake_png = b"\x89PNG fake bytes"
+    monkeypatch.setattr(image_service.ForgeClient, "txt2img",
+                        lambda self, prompt, **kw: fake_png)
+
+    out_path = tmp_path / "out.png"
+    exit_code = cli.main(["image", "a red circle", "--out", str(out_path)])
+    assert exit_code == 0
+    assert out_path.read_bytes() == fake_png
+    assert "Saved" in capsys.readouterr().out
+
+
+def test_image_command_uses_reference_for_img2img(monkeypatch, isolated_home, tmp_path, capsys):
+    from personalai.services import image_service
+
+    fake_png = b"\x89PNG fake bytes"
+    seen = {}
+
+    def fake_img2img(self, prompt, reference_image, **kw):
+        seen["reference"] = reference_image
+        seen["kwargs"] = kw
+        return fake_png
+
+    monkeypatch.setattr(image_service.ForgeClient, "img2img", fake_img2img)
+
+    reference = tmp_path / "ref.png"
+    reference.write_bytes(b"reference bytes")
+    out_path = tmp_path / "out.png"
+
+    exit_code = cli.main(["image", "make it blue", "--reference", str(reference),
+                          "--out", str(out_path), "--denoise", "0.3"])
+    assert exit_code == 0
+    assert seen["reference"] == b"reference bytes"
+    assert seen["kwargs"]["denoising_strength"] == 0.3
+    assert out_path.read_bytes() == fake_png
+
+
+def test_image_command_missing_reference_reports_error(isolated_home, tmp_path, capsys):
+    exit_code = cli.main(["image", "a prompt", "--reference", str(tmp_path / "nope.png")])
+    assert exit_code == 1
+    assert "not found" in capsys.readouterr().err
+
+
+def test_image_models_command_lists_checkpoints(isolated_home, monkeypatch, capsys):
+    from personalai.services import image_service
+
+    monkeypatch.setattr(image_service.ForgeClient, "health", lambda self: True)
+    monkeypatch.setattr(image_service.ForgeClient, "list_checkpoints",
+                        lambda self: ["model_a.safetensors", "model_b.safetensors"])
+
+    exit_code = cli.main(["image-models"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "model_a.safetensors" in out
+    assert "model_b.safetensors" in out
+
+
+def test_image_models_command_reports_when_forge_unreachable(isolated_home, monkeypatch, capsys):
+    from personalai.services import image_service
+
+    monkeypatch.setattr(image_service.ForgeClient, "health", lambda self: False)
+    exit_code = cli.main(["image-models"])
+    assert exit_code == 1
+    assert "not reachable" in capsys.readouterr().err
+
+
 def test_gui_command_reports_missing_pyside_cleanly(isolated_home, monkeypatch, capsys):
     import builtins
 

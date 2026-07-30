@@ -16,6 +16,9 @@
     myai mic-test [--seconds N]     # diagnose "is my mic being picked up at all"
     myai agent [--workspace PATH] [--mode plan|auto|manual] ["task"]
                                      # file-aware assistant, scoped to a folder
+    myai image "prompt" [--reference PATH] [--out PATH] [--checkpoint NAME]
+                                     # generate an image via Stable Diffusion Forge
+    myai image-models                # list checkpoints Forge has available
 
 The chat backend is swappable: Ollama (local, default), Anthropic
 (Claude), or an OpenAI-compatible API (OpenAI itself, Codex-style
@@ -336,6 +339,71 @@ def cmd_agent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _image_save_dir(config: config_mod.Config) -> Path:
+    if config.image_save_dir:
+        return Path(config.image_save_dir).expanduser()
+    return config_mod.APP_DIR / "images"
+
+
+def cmd_image(args: argparse.Namespace) -> int:
+    """Generate an image from a prompt, or a prompt + a reference image,
+    via Stable Diffusion Forge - see services/image_service.py."""
+    from personalai.services.image_service import build_forge_client
+
+    config_mod.ensure_dirs()
+    config = config_mod.ConfigStore().load()
+    client = build_forge_client(config)
+    prompt = " ".join(args.prompt)
+
+    try:
+        if args.checkpoint:
+            client.set_checkpoint(args.checkpoint)
+        if args.reference:
+            reference_path = Path(args.reference)
+            if not reference_path.is_file():
+                print(f"[error] Reference image not found: {reference_path}", file=sys.stderr)
+                return 1
+            image_bytes = client.img2img(
+                prompt, reference_path.read_bytes(), steps=args.steps, cfg=args.cfg,
+                denoising_strength=args.denoise,
+            )
+        else:
+            image_bytes = client.txt2img(prompt, steps=args.steps, cfg=args.cfg)
+    except PersonalAIError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+
+    if args.out:
+        out_path = Path(args.out)
+    else:
+        import datetime
+        save_dir = _image_save_dir(config)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
+        out_path = save_dir / f"image_{stamp}.png"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(image_bytes)
+    print(f"Saved: {out_path}")
+    return 0
+
+
+def cmd_image_models(args: argparse.Namespace) -> int:
+    from personalai.services.image_service import build_forge_client
+
+    config = config_mod.ConfigStore().load()
+    client = build_forge_client(config)
+    if not client.health():
+        print(f"Forge is not reachable at {config.forge_url}.", file=sys.stderr)
+        return 1
+    checkpoints = client.list_checkpoints()
+    if not checkpoints:
+        print("No checkpoints found (or Forge didn't return any).")
+        return 0
+    for name in checkpoints:
+        print(name)
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     config_mod.ensure_dirs()
     store = ConversationStore()
@@ -564,6 +632,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_agent.add_argument("--reset", action="store_true",
                          help="start this session's history over")
     p_agent.set_defaults(func=cmd_agent)
+
+    p_image = sub.add_parser(
+        "image", help="generate an image from a prompt (or prompt + reference) via Forge"
+    )
+    p_image.add_argument("prompt", nargs="+", help="what to generate")
+    p_image.add_argument("--reference", metavar="PATH",
+                         help="reference image - does img2img instead of txt2img")
+    p_image.add_argument("--out", metavar="PATH",
+                         help="where to save the PNG (default: config's image_save_dir)")
+    p_image.add_argument("--checkpoint", help="switch Forge's active model first")
+    p_image.add_argument("--steps", type=int, default=20)
+    p_image.add_argument("--cfg", type=float, default=7.0)
+    p_image.add_argument("--denoise", type=float, default=0.75,
+                         help="img2img only - how much to change the reference (0-1)")
+    p_image.set_defaults(func=cmd_image)
+
+    p_image_models = sub.add_parser(
+        "image-models", help="list checkpoints Forge currently has available"
+    )
+    p_image_models.set_defaults(func=cmd_image_models)
 
     p_list = sub.add_parser("list", help="list saved conversations")
     p_list.set_defaults(func=cmd_list)
