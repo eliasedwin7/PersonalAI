@@ -42,17 +42,21 @@ def ensure_dirs() -> None:
     CONVERSATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-BACKEND_NAMES = ("ollama", "anthropic", "openai")
+BACKEND_NAMES = ("ollama", "anthropic", "openai", "airllm")
 AGENT_MODE_NAMES = ("plan", "auto", "manual")  # see services/agent_service.py's AgentMode
 
 
 @dataclass
 class Config:
-    backend: str = "ollama"       # "ollama" | "anthropic" | "openai" - see BACKEND_NAMES
+    backend: str = "ollama"       # "ollama" | "anthropic" | "openai" | "airllm"
+                                      # see BACKEND_NAMES
     ollama_url: str = "http://127.0.0.1:11434"
     openai_base_url: str = "https://api.openai.com/v1"  # override for Codex-compatible
                                                           # endpoints, OpenRouter, a local
                                                           # server, etc.
+    airllm_max_new_tokens: int = 512  # AirLLM does local in-process generation; this caps
+                                        # each reply because it cannot rely on a server-side
+                                        # default like Ollama/OpenAI/Claude do.
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
     context_char_limit: int = 12000  # rough guard on --context file size, see context_service.py
     history_char_limit: int = 24000  # rough guard on how much conversation HISTORY gets sent

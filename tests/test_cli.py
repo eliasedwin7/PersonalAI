@@ -153,6 +153,19 @@ def test_config_set_openai_base_url(isolated_home, capsys):
     assert "https://my-proxy.example/v1" in out
 
 
+def test_config_set_airllm_max_new_tokens(isolated_home, capsys):
+    cli.main(["config", "set", "airllm_max_new_tokens", "256"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    assert "airllm_max_new_tokens = 256" in capsys.readouterr().out
+
+
+def test_config_set_airllm_max_new_tokens_rejects_non_number(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "airllm_max_new_tokens", "many"])
+    assert exit_code == 1
+    assert "must be a number" in capsys.readouterr().err
+
+
 def test_config_show_includes_voice_settings(isolated_home, capsys):
     cli.main(["config", "show"])
     out = capsys.readouterr().out
@@ -217,7 +230,7 @@ def test_backends_command_lists_all_three_and_marks_active(isolated_home, capsys
     exit_code = cli.main(["backends"])
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "ollama" in out and "anthropic" in out and "openai" in out
+    assert "ollama" in out and "anthropic" in out and "openai" in out and "airllm" in out
     assert "* ollama" in out  # default backend marked active
 
 

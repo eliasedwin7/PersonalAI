@@ -33,6 +33,11 @@ def build_llm_client(config: Config) -> LLMClient:
             api_key=os.environ.get("OPENAI_API_KEY", ""),
         )
 
+    if config.backend == "airllm":
+        from personalai.services.airllm_client import AirLLMClient
+
+        return AirLLMClient(max_new_tokens=config.airllm_max_new_tokens)
+
     raise UserFacingError(
         f"Unknown backend '{config.backend}' (expected one of: "
         f"{', '.join(BACKEND_NAMES)}). Fix it with: "

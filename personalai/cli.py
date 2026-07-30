@@ -9,7 +9,7 @@
     myai list                       # saved conversations
     myai show NAME [--full]         # print a conversation's transcript
     myai models                     # models Ollama currently has pulled
-    myai backends                   # list backends (ollama/anthropic/openai) + active one
+    myai backends                   # list backends + active one
     myai config show
     myai config set KEY VALUE       # e.g. backend anthropic, models.story llama3.1
     myai gui                        # launch the desktop app
@@ -21,12 +21,12 @@
     myai image-models                # list checkpoints Forge has available
 
 The chat backend is swappable: Ollama (local, default), Anthropic
-(Claude), or an OpenAI-compatible API (OpenAI itself, Codex-style
+(Claude), an OpenAI-compatible API (OpenAI itself, Codex-style
 endpoints, or anything else exposing the same wire format - point
-config's openai_base_url at it). Switch with
-`myai config set backend <name>`; API keys come from the
-ANTHROPIC_API_KEY / OPENAI_API_KEY environment variables, never from
-config - see SETUP.md.
+config's openai_base_url at it), or AirLLM for experimental in-process
+local Hugging Face inference. Switch with `myai config set backend
+<name>`; API keys come from the ANTHROPIC_API_KEY / OPENAI_API_KEY
+environment variables, never from config - see SETUP.md.
 
 With no message, `chat`/`story`/`code` drop into an interactive loop
 (type a line, get a reply, Ctrl+D or "exit" to quit) - reading in real
@@ -463,6 +463,7 @@ def cmd_backends(args: argparse.Namespace) -> int:
         "openai": (f"base_url={config.openai_base_url}"
                    + ("" if os.environ.get("OPENAI_API_KEY")
                       else ", OPENAI_API_KEY not set")),
+        "airllm": "local in-process Hugging Face model loading (experimental)",
     }
     for name in config_mod.BACKEND_NAMES:
         marker = "*" if name == config.backend else " "
@@ -477,6 +478,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"backend             = {config.backend}")
     print(f"ollama_url          = {config.ollama_url}")
     print(f"openai_base_url     = {config.openai_base_url}")
+    print(f"airllm_max_new_tokens = {config.airllm_max_new_tokens}")
     print(f"context_char_limit  = {config.context_char_limit}")
     print(f"history_char_limit  = {config.history_char_limit}")
     print(f"mic_device          = {'default' if config.mic_device is None else config.mic_device}")
@@ -516,6 +518,12 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         config.ollama_url = value
     elif key == "openai_base_url":
         config.openai_base_url = value
+    elif key == "airllm_max_new_tokens":
+        try:
+            config.airllm_max_new_tokens = int(value)
+        except ValueError:
+            print("airllm_max_new_tokens must be a number.", file=sys.stderr)
+            return 1
     elif key == "context_char_limit":
         try:
             config.context_char_limit = int(value)
@@ -587,9 +595,10 @@ def cmd_config_set(args: argparse.Namespace) -> int:
             config.system_prompts[task] = value
     else:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
-              "context_char_limit, history_char_limit, mic_device, whisper_model, "
-              "read_replies_aloud, agent_workspace, agent_mode, forge_url, image_save_dir, "
-              "models.general, models.story, models.code, models.vision, "
+              "airllm_max_new_tokens, context_char_limit, history_char_limit, "
+              "mic_device, whisper_model, read_replies_aloud, agent_workspace, "
+              "agent_mode, forge_url, image_save_dir, models.general, models.story, "
+              "models.code, models.vision, "
               "prompts.general, prompts.story, prompts.code, prompts.vision "
               "(empty prompts.<task> value resets to the default)", file=sys.stderr)
         return 1

@@ -2,7 +2,8 @@
 
 **Your own AI assistant - runs fully offline against a local Ollama model
 by default, or swap in Claude / OpenAI (or any OpenAI-compatible /
-Codex-style API) with one config change.**
+Codex-style API), or experimental AirLLM local inference, with one
+config change.**
 
 A tool that gives you several ready-to-use modes, from the command line or
 a small desktop app:
@@ -22,7 +23,7 @@ a small desktop app:
 Every conversation is saved to a plain JSON file on your disk, so you can
 pick up where you left off, list past sessions, or hand a transcript to
 someone else. With the default Ollama backend, nothing ever leaves your
-machine; switching to Claude or OpenAI is an explicit, one-line opt-in
+machine; switching to Claude, OpenAI, or AirLLM is an explicit, one-line opt-in
 (see [Choosing a backend](#choosing-a-backend) below).
 
 New here? **→ Start with [SETUP.md](SETUP.md)** for installing Ollama and
@@ -105,7 +106,7 @@ myai image-models                  list checkpoints Forge currently has loaded
 myai list                          list every saved conversation
 myai show NAME                     print a conversation's full transcript
 myai models                        list models Ollama currently has pulled
-myai backends                      list backends (ollama/anthropic/openai) + which is active
+myai backends                      list backends + which is active
 
 myai config show                   view current settings
 myai config set KEY VALUE          e.g. backend anthropic
@@ -113,6 +114,7 @@ myai config set KEY VALUE          e.g. backend anthropic
                                     e.g. models.vision llama3.2-vision
                                     e.g. ollama_url http://192.168.1.50:11434
                                     e.g. openai_base_url https://my-proxy.example/v1
+                                    e.g. airllm_max_new_tokens 512
                                     e.g. whisper_model small.en
                                     e.g. read_replies_aloud true
                                     e.g. agent_workspace C:\path\to\project
@@ -175,12 +177,29 @@ same `ChatService` and CLI/GUI regardless of which one:
 | `ollama` (default) | A local Ollama server - fully offline | none |
 | `anthropic` | Claude, via Anthropic's API | `ANTHROPIC_API_KEY` |
 | `openai` | OpenAI, a Codex-compatible endpoint, or any other API exposing the same `/chat/completions` shape (OpenRouter, a local llama.cpp/vLLM server, LM Studio, ...) | `OPENAI_API_KEY` |
+| `airllm` | Experimental in-process local Hugging Face inference via AirLLM; lower VRAM, usually slower, no image support | none |
 
 Switch with:
 ```powershell
 myai config set backend anthropic
 myai backends              # see which one is active and whether its key is set
 ```
+
+AirLLM is optional and deliberately not installed by the normal setup:
+
+```powershell
+pip install -r requirements-airllm.txt
+myai config set backend airllm
+myai config set models.general Qwen/Qwen3-8B
+myai config set airllm_max_new_tokens 512
+```
+
+AirLLM is useful when the thing you care about is fitting a much larger
+model into limited VRAM. It is not automatically better than Ollama:
+first use can take a long time while model files are downloaded and
+split into layer shards, it needs enough disk space for that cache, and
+responses are typically slower because layers are streamed instead of
+kept resident.
 
 API keys are **never stored in config** - only read from the
 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment variables, same

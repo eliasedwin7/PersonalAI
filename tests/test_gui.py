@@ -540,6 +540,23 @@ def test_settings_dialog_backend_combo_saves(qtbot, tmp_path):
     assert reloaded.openai_base_url == "https://my-proxy.example/v1"
 
 
+def test_settings_dialog_airllm_token_limit_saves(qtbot, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+
+    dialog.backend_combo.setCurrentText("airllm")
+    dialog.airllm_tokens_spin.setValue(256)
+    dialog._save()
+
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.backend == "airllm"
+    assert reloaded.airllm_max_new_tokens == 256
+
+
 def test_settings_dialog_model_combo_populated_from_ollama(qtbot, tmp_path, monkeypatch):
     from personalai.core.config import ConfigStore
     from personalai.ui.settings_dialog import SettingsDialog

@@ -7,6 +7,7 @@ def test_default_config_has_all_tasks():
     config = Config()
     for task in ("general", "story", "code"):
         assert config.model_for(task) == DEFAULT_MODELS[task]
+    assert config.airllm_max_new_tokens == 512
 
 
 def test_model_for_unknown_task_falls_back_to_general():

@@ -7,6 +7,7 @@ import pytest
 
 from personalai.core.config import Config
 from personalai.core.errors import UserFacingError
+from personalai.services.airllm_client import AirLLMClient
 from personalai.services.anthropic_client import AnthropicClient
 from personalai.services.backend_factory import build_llm_client
 from personalai.services.ollama_client import OllamaClient
@@ -50,6 +51,12 @@ def test_openai_reads_env_var_and_configured_base_url(monkeypatch):
     assert client.base_url == "https://my-proxy.example/v1"
 
 
+def test_airllm_uses_configured_token_limit():
+    client = build_llm_client(Config(backend="airllm", airllm_max_new_tokens=123))
+    assert isinstance(client, AirLLMClient)
+    assert client.max_new_tokens == 123
+
+
 def test_unknown_backend_raises_user_facing_error():
-    with pytest.raises(UserFacingError, match="ollama, anthropic, openai"):
+    with pytest.raises(UserFacingError, match="ollama, anthropic, openai, airllm"):
         build_llm_client(Config(backend="nonsense"))

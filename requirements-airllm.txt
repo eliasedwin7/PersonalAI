@@ -1,0 +1,10 @@
+# Optional AirLLM backend dependencies.
+#
+# Install only if you want `myai config set backend airllm`. These
+# packages are intentionally kept out of requirements.txt because they
+# are heavyweight ML/runtime dependencies, and AirLLM will also download
+# or transform model weights into a Hugging Face/AirLLM cache.
+airllm>=2.11
+torch
+transformers
+accelerate

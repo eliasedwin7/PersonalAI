@@ -81,6 +81,16 @@ class SettingsDialog(QDialog):
         )
         form.addRow("OpenAI-compatible base URL:", self.openai_base_edit)
 
+        self.airllm_tokens_spin = QSpinBox()
+        self.airllm_tokens_spin.setRange(1, 8192)
+        self.airllm_tokens_spin.setValue(config.airllm_max_new_tokens)
+        self.airllm_tokens_spin.setToolTip(
+            "Maximum new tokens generated per AirLLM reply. AirLLM runs "
+            "inside this app process and can be much slower than Ollama, "
+            "so this cap keeps a reply from running indefinitely."
+        )
+        form.addRow("AirLLM max reply tokens:", self.airllm_tokens_spin)
+
         pulled_models = self._pulled_ollama_models(config)
         self.general_edit = _model_combo(config.model_for("general"), pulled_models)
         self.story_edit = _model_combo(config.model_for("story"), pulled_models)
@@ -214,6 +224,7 @@ class SettingsDialog(QDialog):
         c.backend = self.backend_combo.currentText()
         c.ollama_url = self.url_edit.text().strip() or c.ollama_url
         c.openai_base_url = self.openai_base_edit.text().strip() or c.openai_base_url
+        c.airllm_max_new_tokens = self.airllm_tokens_spin.value()
         c.forge_url = self.forge_url_edit.text().strip() or c.forge_url
         c.models["general"] = self.general_edit.currentText().strip() or c.models["general"]
         c.models["story"] = self.story_edit.currentText().strip() or c.models["story"]
