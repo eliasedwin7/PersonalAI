@@ -15,3 +15,17 @@ requests>=2.32
 # known-good version now avoids hitting that surprise later if this GUI
 # is ever packaged the same way.
 PySide6==6.8.3
+
+# Voice input/output for the GUI (mic button + "read replies aloud"),
+# see services/voice_service.py. Also imported lazily - only paid for
+# when the GUI actually launches, and every call site checks
+# is_recording_available()/is_transcription_available()/
+# is_speech_available() first so a missing package just hides that one
+# button instead of crashing anything.
+sounddevice>=0.4.6     # microphone capture (bundles its own PortAudio DLL)
+numpy>=1.24            # sounddevice hands back audio as numpy arrays
+faster-whisper>=1.0    # local, offline speech-to-text (CPU, int8 - no GPU
+                       # needed); first use downloads a small model
+                       # (~75-150MB) from Hugging Face, then it's fully
+                       # offline, matching this project's local-first stance
+pyttsx3>=2.90           # local, offline text-to-speech via Windows SAPI5

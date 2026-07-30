@@ -34,10 +34,15 @@ change any time (`myai config set models.code deepseek-coder-v2`).
 
 The CLI comes first because it's genuinely useful on its own — a
 terminal chat with history, file-context injection, and per-task models
-covers a lot of ground with very little code to trust. The desktop GUI
-(`myai gui`) is a thin window on top of the exact same
-`ChatService`/`ConversationStore` the CLI uses — a session started with
-`myai story` shows up in the GUI's session list too, and vice versa.
+covers a lot of ground with very little code to trust, and it's the
+right tool for one-shot or scripted/automated use. The desktop GUI
+(`myai gui`, or a real standalone `.exe` — see
+[Building a standalone .exe](SETUP.md#building-a-standalone-exe)) is
+meant to be the everyday, dependable way to actually *use* PersonalAI —
+multi-line input, voice in/out, a colored transcript, session
+management, all a window on top of the exact same
+`ChatService`/`ConversationStore` the CLI uses, so a session started
+with `myai story` shows up there too, and vice versa.
 
 ## Quick start
 
@@ -84,8 +89,12 @@ myai config set KEY VALUE          e.g. backend anthropic
                                     e.g. models.vision llama3.2-vision
                                     e.g. ollama_url http://192.168.1.50:11434
                                     e.g. openai_base_url https://my-proxy.example/v1
+                                    e.g. whisper_model small.en
+                                    e.g. read_replies_aloud true
 
-myai gui                           launch the desktop app
+myai gui                           launch the desktop app (see also:
+                                    Run-PersonalAI-GUI.bat, or build a
+                                    real .exe - Build-PersonalAI-Exe.ps1)
 ```
 
 Run any command with no message (`myai story`) to drop into an
@@ -181,6 +190,11 @@ personalai/
     chat_service.py         per-task system prompts + turn orchestration
     context_service.py      --context file/folder loading + truncation
     vision_service.py       image loading/encoding for the caption task
+    voice_service.py        mic recording + local transcription (faster-
+                            whisper) + text-to-speech (pyttsx3), all
+                            lazily-imported/optional
+  gui_main.py             bare GUI entry point (no argparse) - used by
+                          the frozen .exe and Run-PersonalAI-GUI.bat
   ui/                     desktop GUI (`myai gui`) - a thin layer over
                           the same services, nothing here is required
                           for the CLI, and PySide6 is only imported when
@@ -211,8 +225,21 @@ needing a real Ollama server running.
   endpoints, OpenRouter, a local server) - one `myai config set backend
   <name>` away, no code changes. See
   [Choosing a backend](#choosing-a-backend).
-- Possible next: a global hotkey / system-tray quick-chat for launching
-  PersonalAI without opening a terminal first.
+- ✅ **A dependable desktop app** — multi-line Enter-to-send input, a
+  colored transcript, right-click session delete, a system tray icon
+  (closing the window minimizes instead of quitting), remembered window
+  size/position, and model pick-lists in Settings populated from what's
+  actually pulled in Ollama.
+- ✅ **Voice input and reading replies aloud** — a push-to-talk 🎤
+  button (local transcription via faster-whisper, CPU-only) and a "read
+  replies aloud" checkbox (local TTS via Windows SAPI5/pyttsx3), both
+  fully offline. See
+  [Voice input and reading replies aloud](SETUP.md#voice-input-and-reading-replies-aloud).
+- ✅ **A real standalone .exe** — `Build-PersonalAI-Exe.ps1` packages the
+  GUI as `PersonalAI.exe`, no conda/terminal needed to launch it. See
+  [Building a standalone .exe](SETUP.md#building-a-standalone-exe).
+- Possible next: a global hotkey for summoning PersonalAI from anywhere
+  without clicking the tray icon first.
 
 ## A note on model choice
 

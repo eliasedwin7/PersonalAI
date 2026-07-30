@@ -153,6 +153,41 @@ def test_config_set_openai_base_url(isolated_home, capsys):
     assert "https://my-proxy.example/v1" in out
 
 
+def test_config_show_includes_voice_settings(isolated_home, capsys):
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "whisper_model       = base.en" in out
+    assert "read_replies_aloud  = False" in out
+
+
+def test_config_set_whisper_model(isolated_home, capsys):
+    cli.main(["config", "set", "whisper_model", "small.en"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "whisper_model       = small.en" in out
+
+
+def test_config_set_whisper_model_rejects_unknown(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "whisper_model", "huge"])
+    assert exit_code == 1
+    assert "Unknown whisper_model" in capsys.readouterr().err
+
+
+def test_config_set_read_replies_aloud(isolated_home, capsys):
+    cli.main(["config", "set", "read_replies_aloud", "true"])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "read_replies_aloud  = True" in out
+
+
+def test_config_set_read_replies_aloud_rejects_invalid(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "read_replies_aloud", "maybe"])
+    assert exit_code == 1
+    assert "must be" in capsys.readouterr().err
+
+
 def test_backends_command_lists_all_three_and_marks_active(isolated_home, capsys):
     exit_code = cli.main(["backends"])
     assert exit_code == 0

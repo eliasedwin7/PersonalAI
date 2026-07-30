@@ -22,6 +22,21 @@ from PySide6.QtWidgets import (
 )
 
 from personalai.core.config import BACKEND_NAMES, Config, ConfigStore
+from personalai.services.voice_service import WHISPER_MODEL_SIZES
+
+
+def _model_combo(current_value: str, pulled_models: list[str]) -> QComboBox:
+    """An editable combo box: pick from what's actually pulled in Ollama,
+    or type any other model name (needed for Claude/OpenAI model names,
+    which aren't listable this way)."""
+    combo = QComboBox()
+    combo.setEditable(True)
+    items = list(pulled_models)
+    if current_value not in items:
+        items.insert(0, current_value)
+    combo.addItems(items)
+    combo.setCurrentText(current_value)
+    return combo
 
 
 class SettingsDialog(QDialog):
@@ -50,10 +65,11 @@ class SettingsDialog(QDialog):
         )
         form.addRow("OpenAI-compatible base URL:", self.openai_base_edit)
 
-        self.general_edit = QLineEdit(config.model_for("general"))
-        self.story_edit = QLineEdit(config.model_for("story"))
-        self.code_edit = QLineEdit(config.model_for("code"))
-        self.vision_edit = QLineEdit(config.model_for("vision"))
+        pulled_models = self._pulled_ollama_models(config)
+        self.general_edit = _model_combo(config.model_for("general"), pulled_models)
+        self.story_edit = _model_combo(config.model_for("story"), pulled_models)
+        self.code_edit = _model_combo(config.model_for("code"), pulled_models)
+        self.vision_edit = _model_combo(config.model_for("vision"), pulled_models)
         self.limit_spin = QSpinBox()
         self.limit_spin.setRange(500, 200_000)
         self.limit_spin.setValue(config.context_char_limit)
@@ -63,6 +79,15 @@ class SettingsDialog(QDialog):
         form.addRow("Code model:", self.code_edit)
         form.addRow("Vision model:", self.vision_edit)
         form.addRow("Context char limit:", self.limit_spin)
+
+        self.whisper_combo = QComboBox()
+        self.whisper_combo.addItems(list(WHISPER_MODEL_SIZES))
+        self.whisper_combo.setCurrentText(config.whisper_model)
+        self.whisper_combo.setToolTip(
+            "Voice input model size (English-only). Bigger = more accurate, "
+            "slower on CPU. Downloaded once, then cached offline."
+        )
+        form.addRow("Voice input model:", self.whisper_combo)
         layout.addLayout(form)
 
         key_note = QLabel(
@@ -82,6 +107,17 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
     @staticmethod
+    def _pulled_ollama_models(config: Config) -> list[str]:
+        """Best-effort list of models Ollama already has pulled, so the
+        model fields can be a pick-list instead of free text prone to
+        typos. Ollama's own list_models() already swallows connection
+        errors and returns [] rather than raising, so a stopped/missing
+        Ollama server just means an empty pick-list, not a slow dialog."""
+        from personalai.services.ollama_client import OllamaClient
+
+        return OllamaClient(config.ollama_url).list_models()
+
+    @staticmethod
     def _key_status() -> str:
         anthropic = "set" if os.environ.get("ANTHROPIC_API_KEY") else "not set"
         openai = "set" if os.environ.get("OPENAI_API_KEY") else "not set"
@@ -92,10 +128,11 @@ class SettingsDialog(QDialog):
         c.backend = self.backend_combo.currentText()
         c.ollama_url = self.url_edit.text().strip() or c.ollama_url
         c.openai_base_url = self.openai_base_edit.text().strip() or c.openai_base_url
-        c.models["general"] = self.general_edit.text().strip() or c.models["general"]
-        c.models["story"] = self.story_edit.text().strip() or c.models["story"]
-        c.models["code"] = self.code_edit.text().strip() or c.models["code"]
-        c.models["vision"] = self.vision_edit.text().strip() or c.models["vision"]
+        c.models["general"] = self.general_edit.currentText().strip() or c.models["general"]
+        c.models["story"] = self.story_edit.currentText().strip() or c.models["story"]
+        c.models["code"] = self.code_edit.currentText().strip() or c.models["code"]
+        c.models["vision"] = self.vision_edit.currentText().strip() or c.models["vision"]
         c.context_char_limit = self.limit_spin.value()
+        c.whisper_model = self.whisper_combo.currentText()
         self.store.save(c)
         self.accept()

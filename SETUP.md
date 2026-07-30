@@ -13,6 +13,8 @@ theoretical one.
 - [Step 3 - Your first conversation](#step-3---your-first-conversation)
 - [Everyday use](#everyday-use)
 - [The desktop app](#the-desktop-app)
+- [Voice input and reading replies aloud](#voice-input-and-reading-replies-aloud)
+- [Building a standalone .exe](#building-a-standalone-exe)
 - [Captioning images](#captioning-images)
 - [Choosing models](#choosing-models)
 - [Using Claude, OpenAI, or a Codex-compatible API instead](#using-claude-openai-or-a-codex-compatible-api-instead)
@@ -152,32 +154,113 @@ chat without typing any commands.
 
 ## The desktop app
 
-If you'd rather not type commands, launch the window instead:
+This is meant to be a genuinely usable everyday interface, not just a
+thin wrapper you fall back to when you forget a command — the terminal
+stays around for one-shot messages and scripting/automation, but for
+regular back-and-forth conversation the window is the intended way to
+use PersonalAI. If you'd rather not type commands, launch it:
 
 ```powershell
 myai gui
 ```
+
+Or double-click **`Run-PersonalAI-GUI.bat`**, or build a real standalone
+`.exe` (see [Building a standalone .exe](#building-a-standalone-exe)
+below) if you couldn't find an executable to click.
 
 It has two tabs, both talking to the exact same settings and saved
 conversations as the CLI (a session started with `myai story` shows up
 in the GUI's session list, and vice versa):
 
 - **Chat** — a task dropdown (general/story/code), a list of saved
-  sessions on the left, a streaming transcript, and "Attach file…" /
-  "Attach folder…" buttons (same idea as `--context` on the command
-  line — pick a file or a whole folder and its content gets prepended
-  to your next message; attaching multiple times combines them).
+  sessions on the left (right-click one to delete it), a colored
+  streaming transcript, and "Attach file…" / "Attach folder…" buttons
+  (same idea as `--context` on the command line — pick a file or a
+  whole folder and its content gets prepended to your next message;
+  attaching multiple times combines them). The input box is multi-line:
+  **Enter sends, Shift+Enter adds a new line** — handy for longer story
+  or code messages. See below for the 🎤 mic button and "Read replies
+  aloud" checkbox.
 - **Caption Image** — choose an image, optionally type what you want to
   know about it, click "Caption it".
 
-**File → Settings…** in the window edits the same things as `myai config
-set` (Ollama URL, per-task models, context size limit).
+A few things make it feel like a normal desktop app instead of a script
+with a window glued on: it remembers its size/position between
+launches, closing it (the X button) minimizes it to the system tray
+rather than quitting — right-click the tray icon to actually quit or to
+bring the window back — and **File → Settings…** edits the same things
+as `myai config set` (backend, Ollama URL, per-task models — picked
+from a dropdown of whatever's actually pulled in Ollama instead of
+typed free-hand — context size limit, and the voice input model size).
 
 The first time you run `myai gui`, if you see an error mentioning
 PySide6, the GUI's one extra dependency didn't get installed — re-run
 `Install-PersonalAI-Env.ps1 -Dev` (it's in `requirements.txt` and should
 have installed automatically; this is only a fallback for older
 installs).
+
+## Voice input and reading replies aloud
+
+Both directions are optional and fully local/offline - no audio is ever
+sent anywhere over the network. If either package below isn't
+installed, the corresponding control (mic button / "Read replies aloud"
+checkbox) just shows up disabled with a tooltip explaining why, instead
+of crashing anything.
+
+**Talking instead of typing (🎤 button, in the Chat tab):**
+1. Click 🎤 — it turns into ⏹ and starts recording from your default
+   microphone.
+2. Say your message, then click ⏹ to stop.
+3. It transcribes locally (via `faster-whisper`, CPU-only) and drops the
+   text into the input box for you to review/edit — it does **not**
+   auto-send, so you can fix anything the transcription got wrong first.
+
+The first recording after installing/switching model size downloads a
+small model from Hugging Face (~75-150MB depending on size, cached
+afterward under `~/.cache/huggingface` — fully offline from then on).
+Pick the size in **File → Settings… → Voice input model**:
+`tiny.en` (fastest, least accurate) / `base.en` (default, good balance)
+/ `small.en` (slower, more accurate) — all English-only and CPU-friendly.
+
+**Reading replies aloud:** check "Read replies aloud" in the Chat tab.
+Uses `pyttsx3`, which drives Windows' own built-in text-to-speech
+(SAPI5) — no model download, no internet, whatever voice is set in
+Windows' own Speech settings.
+
+If these packages didn't install automatically (older install, or a
+sandboxed/restricted environment where `sounddevice`'s microphone access
+or `pyttsx3`'s SAPI5 hookup couldn't build), re-run
+`Install-PersonalAI-Env.ps1 -Dev` or install them by hand:
+```powershell
+conda run -n personalai pip install sounddevice faster-whisper pyttsx3
+```
+
+## Building a standalone .exe
+
+`myai gui` (or `Run-PersonalAI-GUI.bat`) both launch the desktop app
+through the conda environment - completely fine day to day, but if you'd
+rather have a real `PersonalAI.exe` you can pin to your taskbar or hand
+to someone else without them installing Anaconda, build one:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Build-PersonalAI-Exe.ps1
+```
+
+This produces `dist\PersonalAI\PersonalAI.exe` — double-click it, no
+conda or terminal involved at all. Add `-Shortcut` to also drop a
+"PersonalAI" shortcut on your Desktop:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Build-PersonalAI-Exe.ps1 -Shortcut
+```
+
+The build takes a few minutes (`faster-whisper`'s speech-recognition
+backend is the biggest piece) and `dist\`/`build\` are gitignored -
+they're disposable, rebuild any time rather than committing them. If
+Windows SmartScreen or your antivirus flags the freshly-built .exe the
+first time you run it, that's a common false positive for unsigned
+PyInstaller executables, not a sign anything is wrong — choose "More
+info → Run anyway" (SmartScreen) or add an exception (antivirus).
 
 ## Captioning images
 
@@ -333,6 +416,28 @@ current config) - double check with `myai config show` that `backend`
 actually changed. In the GUI, switching backend in Settings rebuilds the
 live connection immediately on clicking OK; if something still looks
 off, restart `myai gui`.
+
+**The 🎤 mic button / "Read replies aloud" checkbox is greyed out**
+The optional package behind it isn't installed - hover the control for a
+tooltip naming which one (`sounddevice` + `faster-whisper` for the mic,
+`pyttsx3` for read-aloud). Install it with `conda run -n personalai pip
+install <name>` and restart the GUI.
+
+**Recording works but nothing gets transcribed, or it's very slow**
+The first transcription with a given voice model size downloads it from
+Hugging Face - if you're offline at that moment it'll fail. Try a
+smaller model size (`tiny.en`) in Settings if it's consistently slow;
+like text models, this runs on CPU and a bigger size is a real
+speed/accuracy trade-off, not a bug.
+
+**The built .exe won't launch, or the mic/read-aloud controls work in
+`myai gui` but not in the frozen .exe**
+PyInstaller has to explicitly collect a few native pieces
+(`sounddevice`'s bundled PortAudio DLL, `faster-whisper`'s ctranslate2
+backend) that its static analysis can't see on its own -
+`personalai.spec` already does this, but if a rebuilt .exe still
+misbehaves, `myai gui` through the conda env is the reliable fallback
+while you sort out the frozen build.
 
 **I want to point this at a Dune-Remaster (or any other project) file or folder**
 You don't need PersonalAI to live inside that project — just pass the

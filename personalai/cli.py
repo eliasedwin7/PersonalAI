@@ -269,6 +269,8 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"ollama_url          = {config.ollama_url}")
     print(f"openai_base_url     = {config.openai_base_url}")
     print(f"context_char_limit  = {config.context_char_limit}")
+    print(f"whisper_model       = {config.whisper_model}")
+    print(f"read_replies_aloud  = {config.read_replies_aloud}")
     print("models:")
     for task in (*TEXT_TASKS, VISION_TASK):
         print(f"  {task:8s} = {config.model_for(task)}")
@@ -301,6 +303,18 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         except ValueError:
             print("context_char_limit must be a number.", file=sys.stderr)
             return 1
+    elif key == "whisper_model":
+        from personalai.services.voice_service import WHISPER_MODEL_SIZES
+        if value not in WHISPER_MODEL_SIZES:
+            print(f"Unknown whisper_model '{value}' (expected one of: "
+                  f"{', '.join(WHISPER_MODEL_SIZES)}).", file=sys.stderr)
+            return 1
+        config.whisper_model = value
+    elif key == "read_replies_aloud":
+        if value.lower() not in ("true", "false"):
+            print("read_replies_aloud must be 'true' or 'false'.", file=sys.stderr)
+            return 1
+        config.read_replies_aloud = value.lower() == "true"
     elif key.startswith("models."):
         task = key.split(".", 1)[1]
         valid_tasks = (*TEXT_TASKS, VISION_TASK)
@@ -311,8 +325,8 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         config.models[task] = value
     else:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
-              "context_char_limit, models.general, models.story, models.code, "
-              "models.vision", file=sys.stderr)
+              "context_char_limit, whisper_model, read_replies_aloud, models.general, "
+              "models.story, models.code, models.vision", file=sys.stderr)
         return 1
     store.save(config)
     print(f"{key} = {value}")
