@@ -488,6 +488,10 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print("models:")
     for task in (*TEXT_TASKS, VISION_TASK):
         print(f"  {task:8s} = {config.model_for(task)}")
+    print("system prompts (blank = using the built-in default):")
+    for task in (*TEXT_TASKS, VISION_TASK):
+        override = config.system_prompts.get(task, "")
+        print(f"  {task:8s} = {override or '(default)'}")
     return 0
 
 
@@ -563,11 +567,24 @@ def cmd_config_set(args: argparse.Namespace) -> int:
                   file=sys.stderr)
             return 1
         config.models[task] = value
+    elif key.startswith("prompts."):
+        task = key.split(".", 1)[1]
+        valid_tasks = (*TEXT_TASKS, VISION_TASK)
+        if task not in valid_tasks:
+            print(f"Unknown task '{task}' (expected one of: {', '.join(valid_tasks)}).",
+                  file=sys.stderr)
+            return 1
+        if value == "":
+            config.system_prompts.pop(task, None)  # empty value = reset to the built-in default
+        else:
+            config.system_prompts[task] = value
     else:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
               "context_char_limit, mic_device, whisper_model, read_replies_aloud, "
               "agent_workspace, agent_mode, forge_url, image_save_dir, "
-              "models.general, models.story, models.code, models.vision", file=sys.stderr)
+              "models.general, models.story, models.code, models.vision, "
+              "prompts.general, prompts.story, prompts.code, prompts.vision "
+              "(empty prompts.<task> value resets to the default)", file=sys.stderr)
         return 1
     store.save(config)
     print(f"{key} = {value}")

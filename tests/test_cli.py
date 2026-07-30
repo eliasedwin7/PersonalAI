@@ -467,6 +467,36 @@ def test_config_set_forge_url(isolated_home, capsys):
     assert "forge_url           = http://192.168.1.50:7860" in capsys.readouterr().out
 
 
+def test_config_show_includes_default_system_prompts(isolated_home, capsys):
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "story    = (default)" in out
+
+
+def test_config_set_prompts_story_overrides_it(isolated_home, capsys):
+    cli.main(["config", "set", "prompts.story", "Always write in second person."])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "story    = Always write in second person." in out
+
+
+def test_config_set_prompts_unknown_task_rejected(isolated_home, capsys):
+    exit_code = cli.main(["config", "set", "prompts.nonsense", "whatever"])
+    assert exit_code == 1
+    assert "Unknown task" in capsys.readouterr().err
+
+
+def test_config_set_prompts_empty_value_resets_to_default(isolated_home, capsys):
+    cli.main(["config", "set", "prompts.story", "Always write in second person."])
+    capsys.readouterr()
+    cli.main(["config", "set", "prompts.story", ""])
+    capsys.readouterr()
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+    assert "story    = (default)" in out
+
+
 def test_agent_command_reports_missing_workspace(isolated_home, capsys):
     exit_code = cli.main(["agent", "do something"])
     assert exit_code == 1

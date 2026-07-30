@@ -15,15 +15,21 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
     QSpinBox,
     QVBoxLayout,
 )
 
 from personalai.core.config import BACKEND_NAMES, Config, ConfigStore
 from personalai.services import voice_service
+from personalai.services.chat_service import SYSTEM_PROMPTS, TEXT_TASKS, VISION_TASK
 from personalai.services.voice_service import WHISPER_MODEL_SIZES
+
+PROMPT_TASKS = (*TEXT_TASKS, VISION_TASK)
 
 
 def _model_combo(current_value: str, pulled_models: list[str]) -> QComboBox:
@@ -119,6 +125,33 @@ class SettingsDialog(QDialog):
         form.addRow("Voice input model:", self.whisper_combo)
         layout.addLayout(form)
 
+        layout.addWidget(QLabel("System prompt (per task):"))
+        prompt_task_row = QHBoxLayout()
+        prompt_task_row.addWidget(QLabel("Task:"))
+        self.prompt_task_combo = QComboBox()
+        self.prompt_task_combo.addItems(list(PROMPT_TASKS))
+        prompt_task_row.addWidget(self.prompt_task_combo)
+        reset_prompt_btn = QPushButton("Reset to default")
+        reset_prompt_btn.clicked.connect(self._reset_current_prompt)
+        prompt_task_row.addWidget(reset_prompt_btn)
+        prompt_task_row.addStretch(1)
+        layout.addLayout(prompt_task_row)
+
+        self.prompt_edit = QPlainTextEdit()
+        self.prompt_edit.setMaximumHeight(100)
+        layout.addWidget(self.prompt_edit)
+
+        # Staged per-task edits, not written into config.system_prompts
+        # until _save() - lets the user flip between tasks without
+        # losing what they typed for another one.
+        self._prompt_texts = {
+            task: config.system_prompts.get(task) or SYSTEM_PROMPTS[task]
+            for task in PROMPT_TASKS
+        }
+        self._last_prompt_task = self.prompt_task_combo.currentText()
+        self.prompt_edit.setPlainText(self._prompt_texts[self._last_prompt_task])
+        self.prompt_task_combo.currentTextChanged.connect(self._on_prompt_task_changed)
+
         key_note = QLabel(
             "API keys aren't set here - point ANTHROPIC_API_KEY / "
             "OPENAI_API_KEY at your key as environment variables before "
@@ -134,6 +167,19 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _on_prompt_task_changed(self, new_task: str) -> None:
+        # currentTextChanged only reports the NEW value, so the task
+        # being switched away FROM has to be tracked separately in
+        # order to save whatever was just typed for it.
+        self._prompt_texts[self._last_prompt_task] = self.prompt_edit.toPlainText()
+        self._last_prompt_task = new_task
+        self.prompt_edit.setPlainText(self._prompt_texts[new_task])
+
+    def _reset_current_prompt(self) -> None:
+        task = self.prompt_task_combo.currentText()
+        self._prompt_texts[task] = SYSTEM_PROMPTS[task]
+        self.prompt_edit.setPlainText(SYSTEM_PROMPTS[task])
 
     @staticmethod
     def _pulled_ollama_models(config: Config) -> list[str]:
@@ -165,5 +211,17 @@ class SettingsDialog(QDialog):
         c.context_char_limit = self.limit_spin.value()
         c.mic_device = self.mic_combo.currentData()
         c.whisper_model = self.whisper_combo.currentText()
+
+        # Capture whatever's on screen right now for the currently-shown
+        # task (the combo's currentTextChanged handler only captures a
+        # task's text when you switch AWAY from it).
+        self._prompt_texts[self.prompt_task_combo.currentText()] = self.prompt_edit.toPlainText()
+        for task in PROMPT_TASKS:
+            text = self._prompt_texts[task].strip()
+            if text and text != SYSTEM_PROMPTS[task]:
+                c.system_prompts[task] = text
+            else:
+                c.system_prompts.pop(task, None)
+
         self.store.save(c)
         self.accept()

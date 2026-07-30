@@ -27,6 +27,28 @@ def test_system_prompt_for_known_and_unknown_tasks():
     assert system_prompt_for("nonsense") == SYSTEM_PROMPTS["general"]
 
 
+def test_system_prompt_for_uses_override_when_present():
+    overrides = {"story": "Always write in second person."}
+    assert system_prompt_for("story", overrides) == "Always write in second person."
+    assert system_prompt_for("code", overrides) == SYSTEM_PROMPTS["code"]
+
+
+def test_system_prompt_for_ignores_blank_override():
+    assert system_prompt_for("story", {"story": ""}) == SYSTEM_PROMPTS["story"]
+
+
+def test_send_uses_configured_system_prompt_override(tmp_path):
+    config = Config(system_prompts={"story": "Always write in second person."})
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+
+    conv = service.store.load_or_create("story", "story")
+    service.send(conv, "hello")
+
+    messages, _model = client.calls[0]
+    assert messages[0] == {"role": "system", "content": "Always write in second person."}
+
+
 def test_send_appends_both_turns_and_saves(tmp_path):
     config = Config(models={"general": "llama3.1", "story": "llama3.1", "code": "qwen2.5-coder"})
     store = ConversationStore(tmp_path)

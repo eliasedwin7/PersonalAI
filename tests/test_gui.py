@@ -546,6 +546,64 @@ def test_settings_dialog_microphone_combo_preselects_configured_device(
     assert dialog.mic_combo.currentData() == 1
 
 
+def test_settings_dialog_prompt_editor_saves_an_override(qtbot, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.services.chat_service import SYSTEM_PROMPTS
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+
+    assert dialog.prompt_task_combo.currentText() == "general"
+    assert dialog.prompt_edit.toPlainText() == SYSTEM_PROMPTS["general"]
+
+    dialog.prompt_edit.setPlainText("Always write in second person.")
+    dialog._save()
+
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.system_prompts["general"] == "Always write in second person."
+
+
+def test_settings_dialog_prompt_editor_switching_tasks_preserves_edits(qtbot, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+
+    dialog.prompt_edit.setPlainText("General override.")
+    dialog.prompt_task_combo.setCurrentText("code")
+    dialog.prompt_edit.setPlainText("Code override.")
+    dialog.prompt_task_combo.setCurrentText("general")
+    assert dialog.prompt_edit.toPlainText() == "General override."
+
+    dialog._save()
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.system_prompts["general"] == "General override."
+    assert reloaded.system_prompts["code"] == "Code override."
+
+
+def test_settings_dialog_prompt_editor_reset_clears_override(qtbot, tmp_path):
+    from personalai.core.config import Config, ConfigStore
+    from personalai.services.chat_service import SYSTEM_PROMPTS
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    config = Config(system_prompts={"general": "An old override."})
+    dialog = SettingsDialog(config, store)
+    qtbot.addWidget(dialog)
+
+    assert dialog.prompt_edit.toPlainText() == "An old override."
+    dialog._reset_current_prompt()
+    assert dialog.prompt_edit.toPlainText() == SYSTEM_PROMPTS["general"]
+
+    dialog._save()
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert "general" not in reloaded.system_prompts
+
+
 def test_settings_dialog_whisper_model_saves(qtbot, tmp_path):
     from personalai.core.config import ConfigStore
     from personalai.ui.settings_dialog import SettingsDialog

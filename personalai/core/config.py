@@ -75,6 +75,10 @@ class Config:
                                                 # API - see services/image_service.py
     image_save_dir: str = ""         # where generated images get saved; "" = APP_DIR/images
                                        # (resolved lazily so PERSONALAI_HOME overrides still work)
+    system_prompts: dict[str, str] = field(default_factory=dict)  # task -> override text;
+                                       # a task absent here just uses chat_service.SYSTEM_PROMPTS'
+                                       # built-in default, so this dict stays empty until someone
+                                       # actually customizes a prompt (see Settings' prompt editor)
 
     def model_for(self, task: str) -> str:
         return self.models.get(task) or self.models.get("general", DEFAULT_MODELS["general"])

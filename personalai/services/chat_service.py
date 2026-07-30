@@ -59,7 +59,12 @@ DEFAULT_TASK = "general"
 VISION_TASK = "vision"
 
 
-def system_prompt_for(task: str) -> str:
+def system_prompt_for(task: str, overrides: dict[str, str] | None = None) -> str:
+    """`overrides` is Config.system_prompts - a user-edited prompt for a
+    task takes priority over the built-in default; a task absent (or
+    blank) there just falls through to SYSTEM_PROMPTS as before."""
+    if overrides and overrides.get(task):
+        return overrides[task]
     return SYSTEM_PROMPTS.get(task, SYSTEM_PROMPTS[DEFAULT_TASK])
 
 
@@ -79,7 +84,8 @@ class ChatService:
         append and save the reply. Returns the reply text."""
         conversation.append("user", user_message)
         model = self.config.model_for(conversation.task)
-        messages = conversation.as_ollama_messages(system_prompt_for(conversation.task))
+        messages = conversation.as_ollama_messages(
+            system_prompt_for(conversation.task, self.config.system_prompts))
         reply = self.client.chat(messages, model, on_token=on_token)
         conversation.append("assistant", reply)
         self.store.save(conversation)
@@ -100,7 +106,8 @@ class ChatService:
         note = f"[image: {image_path.name}] {instruction}".strip()
         conversation.append("user", note)
         model = self.config.model_for(conversation.task)
-        messages = conversation.as_ollama_messages(system_prompt_for(conversation.task))
+        messages = conversation.as_ollama_messages(
+            system_prompt_for(conversation.task, self.config.system_prompts))
         reply = self.client.chat(messages, model, on_token=on_token, images=[image_b64])
         conversation.append("assistant", reply)
         self.store.save(conversation)

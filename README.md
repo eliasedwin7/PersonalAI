@@ -119,6 +119,9 @@ myai config set KEY VALUE          e.g. backend anthropic
                                     e.g. agent_mode auto
                                     e.g. forge_url http://192.168.1.50:7860
                                     e.g. image_save_dir C:\path\to\images
+                                    e.g. prompts.story "Always write in
+                                    second person." (empty value resets
+                                    that task to its built-in default)
 
 myai gui                           launch the desktop app (see also:
                                     Run-PersonalAI-GUI.bat, or build a
@@ -337,11 +340,14 @@ needing a real Ollama server running.
 - ✅ **Image generation** — `myai image` / the Image tab: a prompt, or a
   prompt + a reference image, generated through Stable Diffusion Forge.
   See [Image generation](#image-generation).
+- ✅ **Editable system prompts** — `myai config set prompts.<task> "..."`,
+  or Settings' "System prompt (per task)" editor - override any task's
+  default instructions without touching code; an empty value resets it.
 - Possible next: a global hotkey for summoning PersonalAI from anywhere
-  without clicking the tray icon first; editable per-task system
-  prompts; long-conversation context trimming; drag-and-drop image
-  attach in the Chat tab; a persistent folder knowledge base
-  (`myai index`); cross-session search; conversation export.
+  without clicking the tray icon first; long-conversation context
+  trimming; drag-and-drop image attach in the Chat tab; a persistent
+  folder knowledge base (`myai index`); cross-session search;
+  conversation export.
 
 ## A note on model choice
 
