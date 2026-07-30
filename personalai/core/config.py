@@ -43,6 +43,7 @@ def ensure_dirs() -> None:
 
 
 BACKEND_NAMES = ("ollama", "anthropic", "openai")
+AGENT_MODE_NAMES = ("plan", "auto", "manual")  # see services/agent_service.py's AgentMode
 
 
 @dataclass
@@ -65,6 +66,15 @@ class Config:
     window_geometry: str = ""        # base64 QByteArray from saveGeometry() - GUI only,
                                        # not QSettings/registry, so it lives in this same
                                        # human-readable config.json like everything else
+    agent_workspace: str | None = None  # folder Agent mode is allowed to touch - see
+                                          # services/agent_service.py's sandboxing
+    agent_mode: str = "plan"         # "plan" | "auto" | "manual" - see AGENT_MODE_NAMES.
+                                       # Defaults to the safest mode (nothing ever written
+                                       # or executed) rather than opting into risk by default.
+    forge_url: str = "http://127.0.0.1:7860"  # Stable Diffusion Forge (AUTOMATIC1111-style)
+                                                # API - see services/image_service.py
+    image_save_dir: str = ""         # where generated images get saved; "" = APP_DIR/images
+                                       # (resolved lazily so PERSONALAI_HOME overrides still work)
 
     def model_for(self, task: str) -> str:
         return self.models.get(task) or self.models.get("general", DEFAULT_MODELS["general"])

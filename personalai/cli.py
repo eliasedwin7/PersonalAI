@@ -14,6 +14,8 @@
     myai config set KEY VALUE       # e.g. backend anthropic, models.story llama3.1
     myai gui                        # launch the desktop app
     myai mic-test [--seconds N]     # diagnose "is my mic being picked up at all"
+    myai agent [--workspace PATH] [--mode plan|auto|manual] ["task"]
+                                     # file-aware assistant, scoped to a folder
 
 The chat backend is swappable: Ollama (local, default), Anthropic
 (Claude), or an OpenAI-compatible API (OpenAI itself, Codex-style
@@ -262,6 +264,78 @@ def cmd_mic_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_agent(args: argparse.Namespace) -> int:
+    """File-aware assistant scoped to a workspace folder - see
+    services/agent_service.py's module docstring for the tool-calling
+    design and the three modes (plan/auto/manual)."""
+    from personalai.services.agent_service import Activity, AgentMode, AgentService
+
+    service, config = _build_service()
+    workspace_str = args.workspace or config.agent_workspace
+    if not workspace_str:
+        print("[error] No workspace folder set. Pass --workspace PATH or run: "
+              "myai config set agent_workspace PATH", file=sys.stderr)
+        return 1
+    workspace = Path(workspace_str).expanduser().resolve()
+    if not workspace.is_dir():
+        print(f"[error] Workspace folder not found: {workspace}", file=sys.stderr)
+        return 1
+
+    mode_str = args.mode or config.agent_mode
+    try:
+        mode = AgentMode(mode_str)
+    except ValueError:
+        print(f"[error] Unknown mode '{mode_str}' (expected one of: "
+              f"{', '.join(config_mod.AGENT_MODE_NAMES)}).", file=sys.stderr)
+        return 1
+
+    agent = AgentService(chat_service=service)
+    session_name = args.session or "agent"
+    conversation = service.store.load_or_create(session_name, DEFAULT_TASK)
+    if args.reset:
+        conversation = Conversation(name=session_name, task=DEFAULT_TASK)
+
+    def on_activity(activity: Activity) -> None:
+        marker = "applied" if activity.applied else "proposed/skipped"
+        print(f"\n[{activity.tool} - {marker}] args={activity.args}\n{activity.result}\n")
+
+    def on_confirm(description: str) -> bool:
+        print(f"\n[confirm] {description}")
+        answer = input("Proceed? [y/N] ").strip().lower()
+        return answer in ("y", "yes")
+
+    def run_one(message: str) -> bool:
+        try:
+            agent.run_turn(
+                conversation, message, workspace, mode,
+                on_activity=on_activity, on_confirm=on_confirm, on_token=_print_stream_token,
+            )
+            print()
+            return True
+        except PersonalAIError as exc:
+            print(f"\n[error] {exc}", file=sys.stderr)
+            return False
+
+    print(f"PersonalAI agent - workspace '{workspace}', mode '{mode.value}'.")
+    if args.message:
+        return 0 if run_one(" ".join(args.message)) else 1
+
+    print("Type 'exit' or Ctrl+D to quit.\n")
+    while True:
+        try:
+            line = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        if line.lower() in ("exit", "quit"):
+            break
+        print("ai> ", end="", flush=True)
+        run_one(line)
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     config_mod.ensure_dirs()
     store = ConversationStore()
@@ -339,6 +413,10 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"mic_device          = {'default' if config.mic_device is None else config.mic_device}")
     print(f"whisper_model       = {config.whisper_model}")
     print(f"read_replies_aloud  = {config.read_replies_aloud}")
+    print(f"agent_workspace     = {config.agent_workspace or '(not set)'}")
+    print(f"agent_mode          = {config.agent_mode}")
+    print(f"forge_url           = {config.forge_url}")
+    print(f"image_save_dir      = {config.image_save_dir or '(default: ~/.personalai/images)'}")
     print("models:")
     for task in (*TEXT_TASKS, VISION_TASK):
         print(f"  {task:8s} = {config.model_for(task)}")
@@ -393,6 +471,22 @@ def cmd_config_set(args: argparse.Namespace) -> int:
             print("read_replies_aloud must be 'true' or 'false'.", file=sys.stderr)
             return 1
         config.read_replies_aloud = value.lower() == "true"
+    elif key == "agent_workspace":
+        resolved = Path(value).expanduser()
+        if not resolved.is_dir():
+            print(f"agent_workspace must be an existing folder: {resolved}", file=sys.stderr)
+            return 1
+        config.agent_workspace = str(resolved.resolve())
+    elif key == "agent_mode":
+        if value not in config_mod.AGENT_MODE_NAMES:
+            print(f"Unknown agent_mode '{value}' (expected one of: "
+                  f"{', '.join(config_mod.AGENT_MODE_NAMES)}).", file=sys.stderr)
+            return 1
+        config.agent_mode = value
+    elif key == "forge_url":
+        config.forge_url = value
+    elif key == "image_save_dir":
+        config.image_save_dir = value
     elif key.startswith("models."):
         task = key.split(".", 1)[1]
         valid_tasks = (*TEXT_TASKS, VISION_TASK)
@@ -404,6 +498,7 @@ def cmd_config_set(args: argparse.Namespace) -> int:
     else:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
               "context_char_limit, mic_device, whisper_model, read_replies_aloud, "
+              "agent_workspace, agent_mode, forge_url, image_save_dir, "
               "models.general, models.story, models.code, models.vision", file=sys.stderr)
         return 1
     store.save(config)
@@ -454,6 +549,21 @@ def build_parser() -> argparse.ArgumentParser:
                             help="try a specific device index instead of "
                                  "config's mic_device / the OS default")
     p_mic_test.set_defaults(func=cmd_mic_test)
+
+    p_agent = sub.add_parser(
+        "agent", help="file-aware assistant scoped to a workspace folder"
+    )
+    p_agent.add_argument("message", nargs="*", help="one-shot task; omit for interactive mode")
+    p_agent.add_argument("--workspace", help="folder the agent may read/edit/run commands in "
+                                             "(default: config's agent_workspace)")
+    p_agent.add_argument("--mode", choices=list(config_mod.AGENT_MODE_NAMES),
+                         help="plan (propose only) / auto (no per-call confirmation) / "
+                              "manual (confirm every write/edit/command) - "
+                              "default: config's agent_mode")
+    p_agent.add_argument("--session", help="conversation name (default: 'agent')")
+    p_agent.add_argument("--reset", action="store_true",
+                         help="start this session's history over")
+    p_agent.set_defaults(func=cmd_agent)
 
     p_list = sub.add_parser("list", help="list saved conversations")
     p_list.set_defaults(func=cmd_list)
