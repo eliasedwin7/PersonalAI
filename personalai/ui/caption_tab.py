@@ -39,6 +39,8 @@ class CaptionTab(QWidget):
         self._working = False
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
         pick_row = QHBoxLayout()
         pick_btn = QPushButton("Choose image…")

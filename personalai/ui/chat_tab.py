@@ -29,7 +29,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -42,7 +44,7 @@ from personalai.ui import transcript_view
 from personalai.ui.workers import TaskRunner
 
 INPUT_MAX_HEIGHT = 90
-IMAGE_PREVIEW_HEIGHT = 80
+IMAGE_PREVIEW_HEIGHT = 56
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 
 
@@ -73,13 +75,26 @@ class ChatTab(QWidget):
         self.setAcceptDrops(True)
 
         outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         outer.addWidget(splitter)
 
         left = QWidget()
+        left.setObjectName("sessionPane")
+        left.setMinimumWidth(220)
         left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.addWidget(QLabel("Sessions"))
+        left_layout.setContentsMargins(14, 16, 14, 14)
+        left_layout.setSpacing(10)
+        session_header = QHBoxLayout()
+        sessions_title = QLabel("Chats")
+        sessions_title.setObjectName("paneTitle")
+        session_header.addWidget(sessions_title)
+        session_header.addStretch(1)
+        new_btn = QPushButton("New chat")
+        new_btn.setObjectName("primaryButton")
+        new_btn.clicked.connect(self._new_session)
+        session_header.addWidget(new_btn)
+        left_layout.addLayout(session_header)
         self.session_search = QLineEdit()
         self.session_search.setPlaceholderText("Search sessions")
         self.session_search.textChanged.connect(self._filter_sessions)
@@ -89,18 +104,22 @@ class ChatTab(QWidget):
         self.session_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.session_list.customContextMenuRequested.connect(self._on_session_context_menu)
         left_layout.addWidget(self.session_list)
-        new_btn = QPushButton("New session…")
-        new_btn.clicked.connect(self._new_session)
-        left_layout.addWidget(new_btn)
         clear_session_btn = QPushButton("Clear current session")
         clear_session_btn.clicked.connect(self._clear_current_session)
         left_layout.addWidget(clear_session_btn)
         splitter.addWidget(left)
 
         right = QWidget()
+        right.setObjectName("chatWorkspace")
         right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(24, 18, 24, 18)
+        right_layout.setSpacing(12)
         top_row = QHBoxLayout()
-        top_row.addWidget(QLabel("Task:"))
+        task_title = QLabel("Conversation")
+        task_title.setObjectName("paneTitle")
+        top_row.addWidget(task_title)
+        top_row.addStretch(1)
+        top_row.addWidget(QLabel("Mode"))
         self.task_combo = QComboBox()
         self.task_combo.addItems(list(TEXT_TASKS))
         self.task_combo.currentTextChanged.connect(self._on_task_changed)
@@ -108,62 +127,65 @@ class ChatTab(QWidget):
         self.model_label = QLabel()
         self.model_label.setObjectName("mutedLabel")
         top_row.addWidget(self.model_label)
-        top_row.addStretch(1)
-
-        self.context_label = QLabel("no context files")
-        self.context_label.setStyleSheet("color: #8c8c8c;")
-        top_row.addWidget(self.context_label)
-        attach_btn = QPushButton("Attach file…")
-        attach_btn.clicked.connect(self._attach_context)
-        top_row.addWidget(attach_btn)
-        attach_folder_btn = QPushButton("Attach folder…")
-        attach_folder_btn.setToolTip(
-            "Attach every text file in a folder (e.g. a chapters/ "
-            "directory) as reference material, combined and truncated "
-            "the same way a single file would be."
-        )
-        attach_folder_btn.clicked.connect(self._attach_context_folder)
-        top_row.addWidget(attach_folder_btn)
+        self.attach_btn = QToolButton()
+        self.attach_btn.setText("Attach")
+        self.attach_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        attach_menu = QMenu(self.attach_btn)
+        attach_menu.addAction("Reference files", self._attach_context)
+        attach_menu.addAction("Reference folder", self._attach_context_folder)
+        attach_menu.addAction("Image", self._choose_image)
+        self.attach_btn.setMenu(attach_menu)
+        self.attach_btn.setToolTip("Attach reference files, a folder, or an image to the next message.")
+        top_row.addWidget(self.attach_btn)
         right_layout.addLayout(top_row)
 
-        image_row = QHBoxLayout()
+        attachment_row = QHBoxLayout()
         self.image_preview = QLabel()
-        self.image_preview.setFixedHeight(IMAGE_PREVIEW_HEIGHT)
+        self.image_preview.setFixedHeight(56)
         self.image_preview.hide()
-        image_row.addWidget(self.image_preview)
-        self.image_label = QLabel("no image attached (or drag one onto this window)")
-        self.image_label.setStyleSheet("color: #8c8c8c;")
-        image_row.addWidget(self.image_label, stretch=1)
-        attach_image_btn = QPushButton("Attach image…")
-        attach_image_btn.setToolTip(
-            "Attach one image to send with your next message - closer to "
-            "a single ChatGPT-style chat window than the separate Caption "
-            "Image tab. Needs a vision-capable model for this task."
-        )
-        attach_image_btn.clicked.connect(self._choose_image)
-        image_row.addWidget(attach_image_btn)
-        clear_image_btn = QPushButton("Clear image")
-        clear_image_btn.clicked.connect(self._clear_image)
-        image_row.addWidget(clear_image_btn)
-        clear_context_btn = QPushButton("Clear context")
-        clear_context_btn.clicked.connect(self._clear_context)
-        image_row.addWidget(clear_context_btn)
-        right_layout.addLayout(image_row)
+        attachment_row.addWidget(self.image_preview)
+        self.context_label = QLabel("No attachments")
+        self.context_label.setObjectName("mutedLabel")
+        attachment_row.addWidget(self.context_label, stretch=1)
+        self.clear_attachments_btn = QPushButton("Clear")
+        self.clear_attachments_btn.clicked.connect(self._clear_attachments)
+        self.clear_attachments_btn.setEnabled(False)
+        attachment_row.addWidget(self.clear_attachments_btn)
+        right_layout.addLayout(attachment_row)
+
+        self.content_stack = QStackedWidget()
+        self.empty_state = QWidget()
+        self.empty_state.setObjectName("emptyChatState")
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_title = QLabel("What are you working on?")
+        empty_title.setObjectName("emptyStateTitle")
+        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(empty_title)
+        suggestions = QHBoxLayout()
+        for prompt in ("Plan a task", "Explain code", "Draft something"):
+            suggestion = QPushButton(prompt)
+            suggestion.clicked.connect(lambda _checked=False, text=prompt: self.input_edit.setPlainText(text))
+            suggestions.addWidget(suggestion)
+        empty_layout.addLayout(suggestions)
 
         self.transcript = QTextEdit()
         self.transcript.setReadOnly(True)
-        right_layout.addWidget(self.transcript, stretch=1)
+        self.content_stack.addWidget(self.empty_state)
+        self.content_stack.addWidget(self.transcript)
+        right_layout.addWidget(self.content_stack, stretch=1)
 
         input_row = QHBoxLayout()
         self.input_edit = ChatInputEdit()
         self.input_edit.setPlaceholderText(
-            "Type a message (Enter to send, Shift+Enter for a new line)…"
+            "Message PersonalAI"
         )
         self.input_edit.setMaximumHeight(INPUT_MAX_HEIGHT)
         self.input_edit.submitted.connect(self._send)
         input_row.addWidget(self.input_edit, stretch=1)
 
         self.send_btn = QPushButton("Send")
+        self.send_btn.setObjectName("primaryButton")
         self.send_btn.clicked.connect(self._send)
         input_row.addWidget(self.send_btn)
         self.regenerate_btn = QPushButton("Regenerate")
@@ -175,9 +197,11 @@ class ChatTab(QWidget):
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
+        splitter.setSizes([260, 900])
 
         self._reload_sessions()
         self._load_session(self.task_combo.currentText())
+        self._refresh_attachment_status()
 
     # ---- sessions ----
 
@@ -262,6 +286,8 @@ class ChatTab(QWidget):
 
     def _render_transcript(self) -> None:
         transcript_view.render_transcript(self.transcript, self.conversation)
+        is_empty = self.conversation is None or not self.conversation.messages
+        self.content_stack.setCurrentWidget(self.empty_state if is_empty else self.transcript)
         self._update_model_label()
         self.regenerate_btn.setEnabled(self._can_regenerate())
 
@@ -295,12 +321,11 @@ class ChatTab(QWidget):
         """Attaching adds to whatever's already staged (files + folders can
         be combined) - cleared automatically once actually sent."""
         self.context_paths.extend(paths)
-        names = ", ".join(Path(p).name for p in self.context_paths)
-        self.context_label.setText(f"context: {names}")
+        self._refresh_attachment_status()
 
     def _clear_context(self) -> None:
         self.context_paths = []
-        self.context_label.setText("no context files")
+        self._refresh_attachment_status()
 
     # ---- image attach (button or drag-and-drop) ----
 
@@ -316,7 +341,6 @@ class ChatTab(QWidget):
         matches send_with_image()'s one-image contract and keeps the
         "what will actually get sent" state unambiguous at a glance."""
         self.attached_image_path = path
-        self.image_label.setText(path.name)
         pixmap = QPixmap(str(path))
         if not pixmap.isNull():
             self.image_preview.setPixmap(pixmap.scaledToHeight(
@@ -324,12 +348,28 @@ class ChatTab(QWidget):
             self.image_preview.show()
         else:
             self.image_preview.hide()
+        self._refresh_attachment_status()
 
     def _clear_image(self) -> None:
         self.attached_image_path = None
-        self.image_label.setText("no image attached (or drag one onto this window)")
         self.image_preview.clear()
         self.image_preview.hide()
+        self._refresh_attachment_status()
+
+    def _clear_attachments(self) -> None:
+        self.context_paths = []
+        self.attached_image_path = None
+        self.image_preview.clear()
+        self.image_preview.hide()
+        self._refresh_attachment_status()
+
+    def _refresh_attachment_status(self) -> None:
+        staged = [Path(path).name for path in self.context_paths]
+        if self.attached_image_path is not None:
+            staged.append(self.attached_image_path.name)
+        self.context_label.setText("No attachments" if not staged else ", ".join(staged))
+        self.clear_attachments_btn.setEnabled(bool(staged))
+        self.clear_attachments_btn.setVisible(bool(staged))
 
     @staticmethod
     def _dropped_image_path(mime_data) -> Path | None:
@@ -384,6 +424,7 @@ class ChatTab(QWidget):
         self._clear_image()
 
         self.input_edit.clear()
+        self.content_stack.setCurrentWidget(self.transcript)
         transcript_view.append_role_label(self.transcript, "user")
         transcript_view.append_body(self.transcript, display_text + "\n\n")
         transcript_view.append_role_label(self.transcript, "assistant")
@@ -434,6 +475,7 @@ class ChatTab(QWidget):
             QMessageBox.warning(self, "Regenerate", str(exc))
             return
         self._render_transcript()
+        self.content_stack.setCurrentWidget(self.transcript)
         transcript_view.append_role_label(self.transcript, "assistant")
         self._sending = True
         self.send_btn.setEnabled(False)

@@ -82,6 +82,8 @@ class AgentTab(QWidget):
         self._bridge.confirm_request.connect(self._on_confirm_request)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setSpacing(12)
 
         top_row = QHBoxLayout()
         top_row.addWidget(QLabel("Workspace:"))

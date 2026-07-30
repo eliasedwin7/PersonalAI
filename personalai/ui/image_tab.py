@@ -58,6 +58,8 @@ class ImageTab(QWidget):
         self._working = False
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
         status_row = QHBoxLayout()
         self.status_label = QLabel("Forge: checking…")

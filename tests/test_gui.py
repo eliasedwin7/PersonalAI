@@ -783,7 +783,7 @@ def test_main_window_constructs_with_focused_workspaces(qtbot, chat_service, tmp
     window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
     qtbot.addWidget(window)
     assert window.pages.count() == 4
-    assert [window.navigation.item(i).text() for i in range(window.navigation.count())] == [
+    assert [window.navigation.tabText(i) for i in range(window.navigation.count())] == [
         "Chat", "Voice", "Images", "Agent"
     ]
     assert window.images_page.tabs.tabText(0) == "Describe"

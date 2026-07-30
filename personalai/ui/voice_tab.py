@@ -136,6 +136,7 @@ class VoiceTab(QWidget):
         self._silence_timer.timeout.connect(self._check_auto_stop)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 18, 24, 18)
         layout.setSpacing(12)
 
         title = QLabel("Voice conversation")

@@ -21,13 +21,13 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
     QStackedWidget,
     QSystemTrayIcon,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
 
         self.status_label = QLabel(f"{chat_service.config.backend}: checking…")
         self.statusBar().addPermanentWidget(self.status_label)
+        self.statusBar().hide()
         self._health_timer = QTimer(self)
         self._health_timer.setInterval(HEALTH_INTERVAL_MS)
         self._health_timer.timeout.connect(self._check_health)
@@ -80,39 +81,32 @@ class MainWindow(QMainWindow):
     def _build_workspace(self) -> None:
         shell = QWidget()
         shell.setObjectName("workspaceShell")
-        shell_layout = QHBoxLayout(shell)
-        shell_layout.setContentsMargins(12, 12, 12, 12)
-        shell_layout.setSpacing(12)
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
 
-        sidebar = QWidget()
-        sidebar.setObjectName("sidebar")
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(8, 8, 8, 8)
+        app_bar = QWidget()
+        app_bar.setObjectName("appBar")
+        app_bar_layout = QHBoxLayout(app_bar)
+        app_bar_layout.setContentsMargins(18, 8, 18, 8)
+        app_bar_layout.setSpacing(14)
         brand = QLabel("PersonalAI")
         brand.setObjectName("brand")
-        sidebar_layout.addWidget(brand)
-        self.navigation = QListWidget()
+        app_bar_layout.addWidget(brand)
+        self.navigation = QTabBar()
         self.navigation.setObjectName("navigation")
-        self.navigation.addItems(["Chat", "Voice", "Images", "Agent"])
-        self.navigation.currentRowChanged.connect(self._select_page)
-        sidebar_layout.addWidget(self.navigation, stretch=1)
-        settings_button = QPushButton("Settings")
-        settings_button.clicked.connect(self._open_settings)
-        sidebar_layout.addWidget(settings_button)
-        shell_layout.addWidget(sidebar)
-
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(6, 4, 6, 4)
-        header = QHBoxLayout()
-        self.page_title = QLabel("Chat")
-        self.page_title.setObjectName("workspaceTitle")
-        header.addWidget(self.page_title)
-        header.addStretch(1)
+        for label in ("Chat", "Voice", "Images", "Agent"):
+            self.navigation.addTab(label)
+        self.navigation.currentChanged.connect(self._select_page)
+        app_bar_layout.addWidget(self.navigation)
+        app_bar_layout.addStretch(1)
         self.connection_label = QLabel("Checking connection")
         self.connection_label.setObjectName("connectionStatus")
-        header.addWidget(self.connection_label)
-        content_layout.addLayout(header)
+        app_bar_layout.addWidget(self.connection_label)
+        settings_button = QPushButton("Settings")
+        settings_button.clicked.connect(self._open_settings)
+        app_bar_layout.addWidget(settings_button)
+        shell_layout.addWidget(app_bar)
 
         self.pages = QStackedWidget()
         self.chat_tab = ChatTab(self.chat_service, self.task_runner)
@@ -123,16 +117,14 @@ class MainWindow(QMainWindow):
         self.agent_tab = AgentTab(self.chat_service, self.task_runner, self.config_store)
         for page in (self.chat_tab, self.voice_tab, self.images_page, self.agent_tab):
             self.pages.addWidget(page)
-        content_layout.addWidget(self.pages, stretch=1)
-        shell_layout.addWidget(content, stretch=1)
+        shell_layout.addWidget(self.pages, stretch=1)
         self.setCentralWidget(shell)
-        self.navigation.setCurrentRow(0)
+        self.navigation.setCurrentIndex(0)
 
     def _select_page(self, index: int) -> None:
         if index < 0:
             return
         self.pages.setCurrentIndex(index)
-        self.page_title.setText(self.navigation.item(index).text())
 
     # ---- window geometry (remembered across restarts) ----
 

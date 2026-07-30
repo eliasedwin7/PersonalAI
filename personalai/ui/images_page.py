@@ -16,6 +16,8 @@ class ImagesPage(QWidget):
     def __init__(self, chat_service: ChatService, task_runner: TaskRunner) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setSpacing(12)
         title = QLabel("Images")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
