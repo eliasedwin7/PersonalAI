@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -40,6 +41,8 @@ from personalai.ui import transcript_view
 from personalai.ui.workers import TaskRunner
 
 INPUT_MAX_HEIGHT = 90
+IMAGE_PREVIEW_HEIGHT = 80
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 
 
 class ChatInputEdit(QPlainTextEdit):
@@ -64,7 +67,9 @@ class ChatTab(QWidget):
         self.task_runner = task_runner
         self.conversation: Conversation | None = None
         self.context_paths: list[str] = []
+        self.attached_image_path: Path | None = None
         self._sending = False
+        self.setAcceptDrops(True)
 
         outer = QHBoxLayout(self)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -109,6 +114,27 @@ class ChatTab(QWidget):
         attach_folder_btn.clicked.connect(self._attach_context_folder)
         top_row.addWidget(attach_folder_btn)
         right_layout.addLayout(top_row)
+
+        image_row = QHBoxLayout()
+        self.image_preview = QLabel()
+        self.image_preview.setFixedHeight(IMAGE_PREVIEW_HEIGHT)
+        self.image_preview.hide()
+        image_row.addWidget(self.image_preview)
+        self.image_label = QLabel("no image attached (or drag one onto this window)")
+        self.image_label.setStyleSheet("color: #8c8c8c;")
+        image_row.addWidget(self.image_label, stretch=1)
+        attach_image_btn = QPushButton("Attach image…")
+        attach_image_btn.setToolTip(
+            "Attach one image to send with your next message - closer to "
+            "a single ChatGPT-style chat window than the separate Caption "
+            "Image tab. Needs a vision-capable model for this task."
+        )
+        attach_image_btn.clicked.connect(self._choose_image)
+        image_row.addWidget(attach_image_btn)
+        clear_image_btn = QPushButton("Clear image")
+        clear_image_btn.clicked.connect(self._clear_image)
+        image_row.addWidget(clear_image_btn)
+        right_layout.addLayout(image_row)
 
         self.transcript = QTextEdit()
         self.transcript.setReadOnly(True)
@@ -215,6 +241,59 @@ class ChatTab(QWidget):
         names = ", ".join(Path(p).name for p in self.context_paths)
         self.context_label.setText(f"context: {names}")
 
+    # ---- image attach (button or drag-and-drop) ----
+
+    def _choose_image(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose an image", "", "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)",
+        )
+        if path:
+            self._attach_image(Path(path))
+
+    def _attach_image(self, path: Path) -> None:
+        """Only one image at a time (unlike --context's multiple files) -
+        matches send_with_image()'s one-image contract and keeps the
+        "what will actually get sent" state unambiguous at a glance."""
+        self.attached_image_path = path
+        self.image_label.setText(path.name)
+        pixmap = QPixmap(str(path))
+        if not pixmap.isNull():
+            self.image_preview.setPixmap(pixmap.scaledToHeight(
+                IMAGE_PREVIEW_HEIGHT, Qt.TransformationMode.SmoothTransformation))
+            self.image_preview.show()
+        else:
+            self.image_preview.hide()
+
+    def _clear_image(self) -> None:
+        self.attached_image_path = None
+        self.image_label.setText("no image attached (or drag one onto this window)")
+        self.image_preview.clear()
+        self.image_preview.hide()
+
+    @staticmethod
+    def _dropped_image_path(mime_data) -> Path | None:
+        if not mime_data.hasUrls():
+            return None
+        for url in mime_data.urls():
+            path = Path(url.toLocalFile())
+            if path.suffix.lower() in IMAGE_SUFFIXES:
+                return path
+        return None
+
+    def dragEnterEvent(self, event) -> None:
+        if self._dropped_image_path(event.mimeData()) is not None:
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:
+        path = self._dropped_image_path(event.mimeData())
+        if path is not None:
+            self._attach_image(path)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
+
     # ---- sending ----
 
     def _send(self) -> None:
@@ -236,22 +315,35 @@ class ChatTab(QWidget):
                 QMessageBox.warning(self, "Context file", str(exc))
                 return
         message = context_service.build_user_message(text, context_blocks)
+        image_path = self.attached_image_path
+        display_text = (
+            text if image_path is None else f"[image: {image_path.name}] {message}".strip()
+        )
         self.context_paths = []
         self.context_label.setText("no context files")
+        self._clear_image()
 
         self.input_edit.clear()
         transcript_view.append_role_label(self.transcript, "user")
-        transcript_view.append_body(self.transcript, text + "\n\n")
+        transcript_view.append_body(self.transcript, display_text + "\n\n")
         transcript_view.append_role_label(self.transcript, "assistant")
         self._sending = True
         self.send_btn.setEnabled(False)
 
-        self.task_runner.submit(
-            self.chat_service.send, self.conversation, message,
-            on_progress=self._on_token,
-            on_result=self._on_done,
-            on_error=self._on_error,
-        )
+        if image_path is None:
+            self.task_runner.submit(
+                self.chat_service.send, self.conversation, message,
+                on_progress=self._on_token,
+                on_result=self._on_done,
+                on_error=self._on_error,
+            )
+        else:
+            self.task_runner.submit(
+                self.chat_service.send_with_image, self.conversation, message, image_path,
+                on_progress=self._on_token,
+                on_result=self._on_done,
+                on_error=self._on_error,
+            )
 
     def _on_token(self, token: str) -> None:
         transcript_view.append_body(self.transcript, token)

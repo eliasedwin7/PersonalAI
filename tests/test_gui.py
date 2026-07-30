@@ -155,6 +155,29 @@ def test_chat_tab_attach_folder_stages_it_and_appends_on_send(
     assert tab.context_paths == []  # cleared after a successful send
 
 
+def test_chat_tab_attached_image_is_sent_with_next_message(
+    qtbot, chat_service, task_runner, tmp_path
+):
+    from personalai.ui.chat_tab import ChatTab
+
+    image = tmp_path / "scene.png"
+    image.write_bytes(b"fake image bytes")
+
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._attach_image(image)
+    tab.input_edit.setPlainText("what is in this image?")
+    tab._send()
+
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
+
+    assert chat_service.client.image_calls
+    conv = chat_service.store.load_or_create("general", "general")
+    assert "[image: scene.png]" in conv.messages[0].content
+    assert "what is in this image?" in conv.messages[0].content
+    assert tab.attached_image_path is None
+
+
 def test_chat_tab_switching_task_loads_that_tasks_default_session(
     qtbot, chat_service, task_runner
 ):
