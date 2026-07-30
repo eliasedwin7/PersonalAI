@@ -63,7 +63,8 @@ myai code ["message"]              coding assistant
 
   --session NAME     name this conversation thread (default: the task name,
                       e.g. all untitled story chats share one "story" thread)
-  --context FILE      include a local file as reference material (repeatable)
+  --context PATH      include a file OR a whole folder as reference material
+                      (repeatable; a folder's text files are combined)
   --reset             start this session's history over
 
 myai caption IMAGE ["instruction"]  describe/ask about an image
@@ -91,11 +92,17 @@ press Ctrl+D to leave.
 ```powershell
 myai story --context "C:\path\to\STORY_OUTLINE.md" "continue chapter 3 where Kellan confronts his brother"
 myai code --context ".\my_script.py" "why does this throw a KeyError on line 40?"
+
+# --context also accepts a whole FOLDER - every text file inside (recursively)
+# gets combined, each under its own filename header
+myai story --context "C:\path\to\chapters" "continue where chapter 5 left off"
 ```
 
-`--context` just reads the file and hands its content to the model
-alongside your message — PersonalAI doesn't need to live inside a
-project to help with it.
+`--context` just reads the file (or folder) and hands its content to the
+model alongside your message — PersonalAI doesn't need to live inside a
+project to help with it. A folder is capped at 50 files and the combined
+text is truncated the same way a single file is (keeping the end), so it
+shares `context_char_limit` rather than needing its own setting.
 
 ### Example: describing an image
 
@@ -121,7 +128,7 @@ personalai/
   services/
     ollama_client.py       thin HTTP client for a local Ollama server
     chat_service.py        per-task system prompts + turn orchestration
-    context_service.py     --context file loading/truncation
+    context_service.py     --context file/folder loading + truncation
     vision_service.py      image loading/encoding for the caption task
   ui/                     desktop GUI (`myai gui`) - a thin layer over
                           the same services, nothing here is required
@@ -140,13 +147,16 @@ needing a real Ollama server running.
   context, per-task model config.
 - ✅ **Desktop GUI** (`myai gui`) — a window over the same
   `ChatService`/`ConversationStore`: a Chat tab (session list, task
-  picker, streaming transcript, context-file attach) and a Caption Image
-  tab (pick an image, ask about it, streamed description).
+  picker, streaming transcript, file/folder context attach) and a
+  Caption Image tab (pick an image, ask about it, streamed description).
 - ✅ **Vision/captioning mode** — `myai caption`, using an Ollama vision
   model (`llava` by default), independent of any specific project's
   tagging pipeline.
-- Possible next: a global hotkey / system-tray quick-chat, and letting
-  `--context` accept a whole folder instead of one file at a time.
+- ✅ **Folder context** — `--context` accepts a file or a whole folder
+  (recursively combines its text files), in both the CLI and the GUI's
+  "Attach folder…" button.
+- Possible next: a global hotkey / system-tray quick-chat for launching
+  PersonalAI without opening a terminal first.
 
 ## A note on model choice
 

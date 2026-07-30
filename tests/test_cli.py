@@ -136,6 +136,21 @@ def test_context_file_missing_reports_error(isolated_home, capsys):
     assert "not found" in capsys.readouterr().err
 
 
+def test_context_folder_is_prepended_to_one_shot_message(isolated_home, tmp_path):
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    (chapters / "ch1.md").write_text("Chapter 1: the arrival.", encoding="utf-8")
+    (chapters / "ch2.md").write_text("Chapter 2: the siege begins.", encoding="utf-8")
+
+    cli.main(["story", "--context", str(chapters), "continue this"])
+
+    conv = ConversationStore().load_or_create("story", "story")
+    sent_message = conv.messages[0].content
+    assert "the arrival" in sent_message
+    assert "the siege begins" in sent_message
+    assert sent_message.endswith("continue this")
+
+
 def test_ollama_unreachable_reports_error_not_traceback(isolated_home, monkeypatch, capsys):
     def raise_unavailable(self, messages, model, on_token=None):
         raise OllamaUnavailable("Cannot reach Ollama at http://127.0.0.1:11434: refused")

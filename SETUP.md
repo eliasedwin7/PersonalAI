@@ -115,6 +115,15 @@ chat without typing any commands.
   Large files are automatically truncated (keeping the *end*, since
   that's usually the most relevant part for "continue from here") so you
   don't accidentally overflow the model's context window.
+- **`--context` also accepts a whole folder** — every text file inside
+  it (recursively; `.md .txt .rpy .py .json .yaml .csv` and a few more)
+  gets combined, each under its own filename header, and the *combined*
+  text is truncated the same way a single file is:
+  ```powershell
+  myai story --context "C:\MyNovel\chapters" "continue where chapter 5 left off"
+  ```
+  Capped at 50 files as a safety limit — point it at a chapters folder,
+  not your whole project.
 - **Everything is a plain JSON file** under `%USERPROFILE%\.personalai\`
   — `config.json` for settings, `conversations\<name>.json` per thread.
   Back them up, inspect them, or delete one you don't want with a normal
@@ -133,9 +142,10 @@ conversations as the CLI (a session started with `myai story` shows up
 in the GUI's session list, and vice versa):
 
 - **Chat** — a task dropdown (general/story/code), a list of saved
-  sessions on the left, a streaming transcript, and an "Attach
-  context…" button (same idea as `--context` on the command line — pick
-  a file and its content gets prepended to your next message).
+  sessions on the left, a streaming transcript, and "Attach file…" /
+  "Attach folder…" buttons (same idea as `--context` on the command
+  line — pick a file or a whole folder and its content gets prepended
+  to your next message; attaching multiple times combines them).
 - **Caption Image** — choose an image, optionally type what you want to
   know about it, click "Caption it".
 
@@ -240,9 +250,9 @@ one (`llava`, `llama3.2-vision`, `bakllava`, etc.) — a text-only model
 like `llama3.1` will either ignore the image or Ollama will reject the
 request. Check with `myai config show`.
 
-**I want to point this at a Dune-Remaster (or any other project) file**
+**I want to point this at a Dune-Remaster (or any other project) file or folder**
 You don't need PersonalAI to live inside that project — just pass the
-full path with `--context`:
+full path with `--context` (a file or a whole folder both work):
 ```powershell
 myai story --context "C:\Users\you\My Drive\Game\Dune-Remaster\DuneRemaster\STORY_OUTLINE.md" "continue chapter 3"
 ```

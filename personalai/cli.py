@@ -1,7 +1,7 @@
 """PersonalAI command-line interface.
 
     myai chat ["message"] [--task general|story|code] [--session NAME]
-              [--context FILE ...] [--reset]
+              [--context FILE-OR-FOLDER ...] [--reset]
     myai story ["message"] ...      # shortcut for: chat --task story
     myai code ["message"] ...       # shortcut for: chat --task code
     myai caption IMAGE ["instruction"] [--session NAME]
@@ -111,7 +111,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     for context_path in args.context or []:
         try:
             context_blocks.append(
-                context_service.load_context(Path(context_path), _config.context_char_limit)
+                context_service.load_context_path(Path(context_path), _config.context_char_limit)
             )
         except PersonalAIError as exc:
             print(f"[error] {exc}", file=sys.stderr)
@@ -278,8 +278,8 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("message", nargs="*", help="one-shot message; omit for interactive mode")
         p.add_argument("--session", help="conversation name (default: the task name)")
-        p.add_argument("--context", action="append", metavar="FILE",
-                       help="include a local file as reference material (repeatable)")
+        p.add_argument("--context", action="append", metavar="PATH",
+                       help="include a file OR folder as reference material (repeatable)")
         p.add_argument("--reset", action="store_true",
                        help="start this session's history over")
         if name == "chat":

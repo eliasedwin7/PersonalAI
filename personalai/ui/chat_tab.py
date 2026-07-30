@@ -70,9 +70,17 @@ class ChatTab(QWidget):
         self.context_label = QLabel("no context files")
         self.context_label.setStyleSheet("color: #8c8c8c;")
         top_row.addWidget(self.context_label)
-        attach_btn = QPushButton("Attach context…")
+        attach_btn = QPushButton("Attach file…")
         attach_btn.clicked.connect(self._attach_context)
         top_row.addWidget(attach_btn)
+        attach_folder_btn = QPushButton("Attach folder…")
+        attach_folder_btn.setToolTip(
+            "Attach every text file in a folder (e.g. a chapters/ "
+            "directory) as reference material, combined and truncated "
+            "the same way a single file would be."
+        )
+        attach_folder_btn.clicked.connect(self._attach_context_folder)
+        top_row.addWidget(attach_folder_btn)
         right_layout.addLayout(top_row)
 
         self.transcript = QPlainTextEdit()
@@ -144,9 +152,19 @@ class ChatTab(QWidget):
     def _attach_context(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(self, "Choose context file(s)")
         if paths:
-            self.context_paths = paths
-            names = ", ".join(Path(p).name for p in paths)
-            self.context_label.setText(f"context: {names}")
+            self._add_context_paths(paths)
+
+    def _attach_context_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose a context folder")
+        if folder:
+            self._add_context_paths([folder])
+
+    def _add_context_paths(self, paths: list[str]) -> None:
+        """Attaching adds to whatever's already staged (files + folders can
+        be combined) - cleared automatically once actually sent."""
+        self.context_paths.extend(paths)
+        names = ", ".join(Path(p).name for p in self.context_paths)
+        self.context_label.setText(f"context: {names}")
 
     # ---- sending ----
 
@@ -161,7 +179,7 @@ class ChatTab(QWidget):
         for p in self.context_paths:
             try:
                 context_blocks.append(
-                    context_service.load_context(
+                    context_service.load_context_path(
                         Path(p), self.chat_service.config.context_char_limit
                     )
                 )

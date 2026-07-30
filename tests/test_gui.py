@@ -77,6 +77,44 @@ def test_chat_tab_send_appends_transcript_and_saves(qtbot, chat_service, task_ru
     assert len(reloaded.messages) == 2
 
 
+def test_chat_tab_attach_folder_stages_it_and_appends_on_send(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    """Covers both the new folder-attach button and that attaching is
+    additive (a file and a folder can be staged together)."""
+    from PySide6.QtWidgets import QFileDialog
+
+    from personalai.ui.chat_tab import ChatTab
+
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    (chapters / "ch1.md").write_text("The arrival at dawn.", encoding="utf-8")
+    extra_file = tmp_path / "notes.md"
+    extra_file.write_text("A loose note.", encoding="utf-8")
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: str(chapters))
+    monkeypatch.setattr(QFileDialog, "getOpenFileNames",
+                        lambda *a, **k: ([str(extra_file)], ""))
+
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._attach_context_folder()
+    tab._attach_context()  # additive, not a replace
+    assert set(tab.context_paths) == {str(chapters), str(extra_file)}
+
+    tab.input_edit.setText("continue")
+    tab._send()
+    qtbot.waitUntil(lambda: "canned reply" in tab.transcript.toPlainText(), timeout=5000)
+
+    conv = chat_service.store.load_or_create("general", "general")
+    sent = conv.messages[0].content
+    assert "The arrival at dawn." in sent
+    assert "A loose note." in sent
+    assert sent.endswith("continue")
+    assert tab.context_paths == []  # cleared after a successful send
+
+
 def test_chat_tab_switching_task_loads_that_tasks_default_session(
     qtbot, chat_service, task_runner
 ):
