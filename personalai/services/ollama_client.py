@@ -45,12 +45,24 @@ class OllamaClient:
         messages: list[dict],
         model: str,
         on_token: Callable[[str], None] | None = None,
+        images: list[str] | None = None,
     ) -> str:
         """Send the full message history to `model`. Streams if on_token
         is given (each fragment forwarded as it arrives - useful for a
         terminal REPL that wants to print as it goes), otherwise blocks
-        and returns the whole reply at once."""
-        payload = {"model": model, "messages": messages, "stream": on_token is not None}
+        and returns the whole reply at once.
+
+        `images` (base64-encoded strings) attach to the LAST message only
+        - Ollama's vision models expect the image(s) on the specific
+        message they illustrate, not the whole history. A new list/dict is
+        built rather than mutating the caller's `messages`, since that
+        list may be reused (e.g. logged, or re-sent) elsewhere.
+        """
+        payload_messages = messages
+        if images:
+            payload_messages = messages[:-1] + [{**messages[-1], "images": images}]
+        payload = {"model": model, "messages": payload_messages,
+                  "stream": on_token is not None}
         req = urllib.request.Request(
             self.base_url + "/api/chat",
             data=json.dumps(payload).encode(),

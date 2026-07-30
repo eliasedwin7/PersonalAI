@@ -9,6 +9,8 @@ model), installing PersonalAI, and having your first conversation.
 - [Step 2 - Install PersonalAI](#step-2---install-personalai)
 - [Step 3 - Your first conversation](#step-3---your-first-conversation)
 - [Everyday use](#everyday-use)
+- [The desktop app](#the-desktop-app)
+- [Captioning images](#captioning-images)
 - [Choosing models](#choosing-models)
 - [Troubleshooting](#troubleshooting)
 - [Uninstalling / starting over](#uninstalling--starting-over)
@@ -118,6 +120,59 @@ chat without typing any commands.
   Back them up, inspect them, or delete one you don't want with a normal
   file manager; there's no database involved.
 
+## The desktop app
+
+If you'd rather not type commands, launch the window instead:
+
+```powershell
+myai gui
+```
+
+It has two tabs, both talking to the exact same settings and saved
+conversations as the CLI (a session started with `myai story` shows up
+in the GUI's session list, and vice versa):
+
+- **Chat** — a task dropdown (general/story/code), a list of saved
+  sessions on the left, a streaming transcript, and an "Attach
+  context…" button (same idea as `--context` on the command line — pick
+  a file and its content gets prepended to your next message).
+- **Caption Image** — choose an image, optionally type what you want to
+  know about it, click "Caption it".
+
+**File → Settings…** in the window edits the same things as `myai config
+set` (Ollama URL, per-task models, context size limit).
+
+The first time you run `myai gui`, if you see an error mentioning
+PySide6, the GUI's one extra dependency didn't get installed — re-run
+`Install-PersonalAI-Env.ps1 -Dev` (it's in `requirements.txt` and should
+have installed automatically; this is only a fallback for older
+installs).
+
+## Captioning images
+
+Point PersonalAI at any image and ask about it:
+
+```powershell
+ollama pull llava
+myai caption "C:\path\to\photo.png"
+myai caption "C:\path\to\photo.png" "is this indoors or outdoors?"
+```
+
+With no instruction, it just describes the image. Like the other modes,
+the conversation (your questions + the model's answers, as text) is
+saved under a "vision" session by default — the image file itself is
+never copied or written to disk by PersonalAI, only sent to Ollama for
+that one request.
+
+`llava` is the default vision model and works well for general use. If
+you have the VRAM for it, `llama3.2-vision` tends to give more detailed,
+accurate descriptions:
+
+```powershell
+ollama pull llama3.2-vision
+myai config set models.vision llama3.2-vision
+```
+
 ## Choosing models
 
 Different tasks default to different models:
@@ -130,6 +185,7 @@ models:
   general  = llama3.1
   story    = llama3.1
   code     = qwen2.5-coder
+  vision   = llava
 ```
 
 Change any of them (after pulling the model with `ollama pull <name>`):
@@ -172,6 +228,17 @@ model doesn't fit your available memory when you try to pull/run it.
 You ran the installer from a regular Command Prompt/PowerShell window
 instead of **Anaconda Prompt**. Reopen "Anaconda Prompt" from the Start
 menu and try again.
+
+**`myai gui` complains it can't find PySide6**
+Re-run `Install-PersonalAI-Env.ps1 -Dev` — PySide6 is in
+`requirements.txt` and should install with everything else; this only
+happens on an older install from before the GUI existed.
+
+**Image descriptions are vague, wrong, or `myai caption` errors that the model doesn't support images**
+Make sure the model set for `models.vision` is actually a vision-capable
+one (`llava`, `llama3.2-vision`, `bakllava`, etc.) — a text-only model
+like `llama3.1` will either ignore the image or Ollama will reject the
+request. Check with `myai config show`.
 
 **I want to point this at a Dune-Remaster (or any other project) file**
 You don't need PersonalAI to live inside that project — just pass the

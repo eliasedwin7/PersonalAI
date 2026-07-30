@@ -3,14 +3,21 @@ real one (and any real conversations in it) is never touched."""
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
+# Must be set before pytest-qt (or anything else) ever imports PySide6 -
+# there's no real display in CI/this environment, and setting it here
+# (rather than only in test_gui.py) guarantees it wins regardless of
+# module import order.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from personalai.core import config as config_mod  # noqa: E402
+from personalai.core import config as config_mod
 
 
 @pytest.fixture

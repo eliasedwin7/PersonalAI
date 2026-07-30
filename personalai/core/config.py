@@ -25,6 +25,7 @@ DEFAULT_MODELS = {
     "general": "llama3.1",
     "story": "llama3.1",
     "code": "qwen2.5-coder",
+    "vision": "llava",  # image captioning/description, see services/vision_service.py
 }
 
 

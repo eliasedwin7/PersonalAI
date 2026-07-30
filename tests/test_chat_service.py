@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import pytest
+
 from personalai.core.config import Config
 from personalai.core.conversation import ConversationStore
-from personalai.services.chat_service import ChatService, SYSTEM_PROMPTS, system_prompt_for
+from personalai.services.chat_service import SYSTEM_PROMPTS, ChatService, system_prompt_for
 
 
 class FakeOllamaClient:
     def __init__(self, reply: str = "a reply") -> None:
         self.reply = reply
         self.calls: list[tuple[list[dict], str]] = []
+        self.image_calls: list[list[str]] = []
 
-    def chat(self, messages, model, on_token=None):
+    def chat(self, messages, model, on_token=None, images=None):
         self.calls.append((messages, model))
+        if images is not None:
+            self.image_calls.append(images)
         if on_token:
             on_token(self.reply)
         return self.reply
@@ -73,3 +78,78 @@ def test_send_streams_tokens_when_callback_given(tmp_path):
     seen = []
     service.send(conv, "hi", on_token=seen.append)
     assert seen == ["streamed"]
+
+
+def test_send_with_image_persists_text_note_not_raw_bytes(tmp_path):
+    from personalai.services.chat_service import VISION_TASK
+
+    image = tmp_path / "cat.png"
+    image.write_bytes(b"fake png bytes")
+    config = Config()
+    client = FakeOllamaClient(reply="A cat sitting on a windowsill.")
+    store = ConversationStore(tmp_path / "conversations")
+    service = ChatService(config=config, store=store, client=client)
+    conv = store.load_or_create(VISION_TASK, VISION_TASK)
+
+    reply = service.send_with_image(conv, "what is this?", image)
+
+    assert reply == "A cat sitting on a windowsill."
+    assert conv.messages[0].role == "user"
+    assert "cat.png" in conv.messages[0].content
+    assert "what is this?" in conv.messages[0].content
+    assert "fake png bytes" not in conv.messages[0].content  # never the raw bytes/base64
+
+    # the on-disk JSON must not contain the image bytes either
+    raw = (tmp_path / "conversations" / f"{VISION_TASK}.json").read_text(encoding="utf-8")
+    assert "fake png bytes" not in raw
+    import base64
+    assert base64.b64encode(b"fake png bytes").decode() not in raw
+
+
+def test_send_with_image_passes_base64_to_client(tmp_path):
+    import base64
+
+    from personalai.services.chat_service import VISION_TASK
+
+    image = tmp_path / "dog.png"
+    image.write_bytes(b"woof bytes")
+    config = Config()
+    client = FakeOllamaClient(reply="a dog")
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conv = service.store.load_or_create(VISION_TASK, VISION_TASK)
+
+    service.send_with_image(conv, "describe", image)
+
+    assert client.image_calls == [[base64.b64encode(b"woof bytes").decode()]]
+
+
+def test_send_with_image_uses_vision_system_prompt(tmp_path):
+    from personalai.services.chat_service import SYSTEM_PROMPTS, VISION_TASK
+
+    image = tmp_path / "x.png"
+    image.write_bytes(b"x")
+    config = Config()
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conv = service.store.load_or_create(VISION_TASK, VISION_TASK)
+
+    service.send_with_image(conv, "describe", image)
+
+    messages, _model = client.calls[0]
+    assert messages[0] == {"role": "system", "content": SYSTEM_PROMPTS["vision"]}
+
+
+def test_send_with_image_missing_file_raises_before_touching_conversation(tmp_path):
+    from personalai.core.errors import UserFacingError
+    from personalai.services.chat_service import VISION_TASK
+
+    config = Config()
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conv = service.store.load_or_create(VISION_TASK, VISION_TASK)
+
+    with pytest.raises(UserFacingError):
+        service.send_with_image(conv, "describe", tmp_path / "nope.png")
+
+    assert conv.messages == []  # nothing appended on failure
+    assert client.calls == []

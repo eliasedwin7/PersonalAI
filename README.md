@@ -3,13 +3,15 @@
 **Your own AI assistant, running entirely on your own PC — no internet, no
 account, no API key.**
 
-A command-line tool that talks to [Ollama](https://ollama.com) (a free
-program that runs AI chat models locally) and gives you three
-ready-to-use modes:
+A tool that talks to [Ollama](https://ollama.com) (a free program that
+runs AI chat models locally) and gives you four ready-to-use modes, from
+the command line or a small desktop app:
 
 - **`myai chat`** — general-purpose assistant
 - **`myai story`** — creative writing / dialogue / worldbuilding collaborator
 - **`myai code`** — coding help
+- **`myai caption`** — describe or ask questions about an image, using a
+  local vision model
 
 Every conversation is saved to a plain JSON file on your disk, so you can
 pick up where you left off, list past sessions, or hand a transcript to
@@ -30,8 +32,10 @@ change any time (`myai config set models.code deepseek-coder-v2`).
 
 The CLI comes first because it's genuinely useful on its own — a
 terminal chat with history, file-context injection, and per-task models
-covers a lot of ground with very little code to trust. A desktop GUI can
-sit on top of the same core later without changing any of this.
+covers a lot of ground with very little code to trust. The desktop GUI
+(`myai gui`) is a thin window on top of the exact same
+`ChatService`/`ConversationStore` the CLI uses — a session started with
+`myai story` shows up in the GUI's session list too, and vice versa.
 
 ## Quick start
 
@@ -62,13 +66,20 @@ myai code ["message"]              coding assistant
   --context FILE      include a local file as reference material (repeatable)
   --reset             start this session's history over
 
+myai caption IMAGE ["instruction"]  describe/ask about an image
+  --session NAME     name this conversation thread (default: "vision")
+  --reset             start this session's history over
+
 myai list                          list every saved conversation
 myai show NAME                     print a conversation's full transcript
 myai models                        list models Ollama currently has pulled
 
 myai config show                   view current settings
 myai config set KEY VALUE          e.g. models.story llama3.1
+                                    e.g. models.vision llama3.2-vision
                                     e.g. ollama_url http://192.168.1.50:11434
+
+myai gui                           launch the desktop app
 ```
 
 Run any command with no message (`myai story`) to drop into an
@@ -86,36 +97,56 @@ myai code --context ".\my_script.py" "why does this throw a KeyError on line 40?
 alongside your message — PersonalAI doesn't need to live inside a
 project to help with it.
 
+### Example: describing an image
+
+```powershell
+myai caption "C:\path\to\render.png" "does this look like a bedroom or a garden?"
+```
+
+The image itself is never written to disk by PersonalAI — only the
+instruction text and the model's reply are saved to the conversation
+(under a "vision" session by default, or `--session` for your own name).
+Pull a vision-capable model first: `ollama pull llava` (the default) or
+`ollama pull llama3.2-vision` (bigger, better, needs more VRAM).
+
 ## How it's organized
 
 ```
 personalai/
-  cli.py               argument parsing + the chat/list/show/config commands
+  cli.py                 argument parsing + the chat/caption/list/show/config commands
   core/
-    config.py           per-machine settings (~/.personalai/config.json)
-    conversation.py      one JSON file per saved conversation
+    config.py             per-machine settings (~/.personalai/config.json)
+    conversation.py        one JSON file per saved conversation
     errors.py
   services/
-    ollama_client.py     thin HTTP client for a local Ollama server
-    chat_service.py      per-task system prompts + turn orchestration
-    context_service.py   --context file loading/truncation
+    ollama_client.py       thin HTTP client for a local Ollama server
+    chat_service.py        per-task system prompts + turn orchestration
+    context_service.py     --context file loading/truncation
+    vision_service.py      image loading/encoding for the caption task
+  ui/                     desktop GUI (`myai gui`) - a thin layer over
+                          the same services, nothing here is required
+                          for the CLI, and PySide6 is only imported when
+                          this subcommand actually runs
 ```
 
-Everything under `services/` and `core/` is plain Python with no CLI or
-network mocking baked in, so it's exercised directly by the test suite
-(`conda run -n personalai python -m pytest tests -q`) without needing a
-real Ollama server running.
+Everything under `services/` and `core/` is plain Python with no CLI,
+GUI, or network mocking baked in, so it's exercised directly by the test
+suite (`conda run -n personalai python -m pytest tests -q`) without
+needing a real Ollama server running.
 
 ## Roadmap
 
 - ✅ **CLI core** — chat/story/code modes, saved conversations, file
   context, per-task model config.
-- **Desktop GUI** (planned) — a thin window on top of the same
-  `ChatService`/`ConversationStore`, for when a REPL isn't the right fit
-  (long story-writing sessions, browsing past conversations visually).
-- **Vision/captioning mode** (planned) — using an Ollama vision model
-  (e.g. `llama3.2-vision`) for describing/captioning images, independent
-  of any specific project's tagging pipeline.
+- ✅ **Desktop GUI** (`myai gui`) — a window over the same
+  `ChatService`/`ConversationStore`: a Chat tab (session list, task
+  picker, streaming transcript, context-file attach) and a Caption Image
+  tab (pick an image, ask about it, streamed description).
+- ✅ **Vision/captioning mode** — `myai caption`, using an Ollama vision
+  model (`llava` by default), independent of any specific project's
+  tagging pipeline.
+- Possible next: a global hotkey / system-tray quick-chat, and letting
+  `--context` accept a whole folder instead of one file at a time.
 
 ## A note on model choice
 

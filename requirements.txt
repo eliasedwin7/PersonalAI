@@ -5,3 +5,13 @@
 # run any model itself, so it needs none of the heavy ML libraries
 # (torch, onnxruntime, etc.) that Ollama itself depends on.
 requests>=2.32
+
+# Desktop GUI (`myai gui`) - a thin optional layer over the same
+# ChatService/ConversationStore the CLI uses. Imported lazily by
+# cli.py's `gui` subcommand, so `myai chat`/`story`/`code` never pay the
+# Qt import cost. Pinned to 6.8.3, not just >=6.8: a sibling project
+# (AI Character Studio) found 6.11.1 crashes when frozen with
+# PyInstaller ("DLL load failed while importing QtWidgets"); pinning the
+# known-good version now avoids hitting that surprise later if this GUI
+# is ever packaged the same way.
+PySide6==6.8.3

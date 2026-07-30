@@ -4,11 +4,14 @@
               [--context FILE ...] [--reset]
     myai story ["message"] ...      # shortcut for: chat --task story
     myai code ["message"] ...       # shortcut for: chat --task code
+    myai caption IMAGE ["instruction"] [--session NAME]
+                                     # describe/ask about an image
     myai list                       # saved conversations
     myai show NAME [--full]         # print a conversation's transcript
     myai models                     # models Ollama currently has pulled
     myai config show
     myai config set KEY VALUE       # e.g. models.story llama3.1
+    myai gui                        # launch the desktop app
 
 With no message, `chat`/`story`/`code` drop into an interactive loop
 (type a line, get a reply, Ctrl+D or "exit" to quit) - reading in real
@@ -26,8 +29,13 @@ from personalai import __version__
 from personalai.core import config as config_mod
 from personalai.core.conversation import Conversation, ConversationStore
 from personalai.core.errors import PersonalAIError
-from personalai.services import context_service
-from personalai.services.chat_service import DEFAULT_TASK, SYSTEM_PROMPTS, ChatService
+from personalai.services import context_service, vision_service
+from personalai.services.chat_service import (
+    DEFAULT_TASK,
+    TEXT_TASKS,
+    VISION_TASK,
+    ChatService,
+)
 from personalai.services.ollama_client import OllamaClient
 
 
@@ -145,6 +153,39 @@ def _run_repl_with_context(service: ChatService, conversation: Conversation,
         _run_one_message(service, conversation, message)
 
 
+def cmd_caption(args: argparse.Namespace) -> int:
+    service, _config = _build_service()
+    image_path = Path(args.image)
+    instruction = (" ".join(args.instruction) if args.instruction
+                  else vision_service.DEFAULT_INSTRUCTION)
+    session_name = args.session or VISION_TASK
+    conversation = service.store.load_or_create(session_name, VISION_TASK)
+    if args.reset:
+        conversation = Conversation(name=session_name, task=VISION_TASK)
+
+    try:
+        service.send_with_image(conversation, instruction, image_path,
+                                on_token=_print_stream_token)
+        print()
+        return 0
+    except PersonalAIError as exc:
+        print(f"\n[error] {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_gui(args: argparse.Namespace) -> int:
+    try:
+        from personalai.ui.app import main as gui_main
+    except ImportError as exc:
+        print(
+            "[error] The desktop GUI needs PySide6, which isn't installed.\n"
+            "Install it with: pip install PySide6\n"
+            f"(underlying error: {exc})", file=sys.stderr,
+        )
+        return 1
+    return gui_main()
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     config_mod.ensure_dirs()
     store = ConversationStore()
@@ -193,7 +234,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"ollama_url         = {config.ollama_url}")
     print(f"context_char_limit = {config.context_char_limit}")
     print("models:")
-    for task in ("general", "story", "code"):
+    for task in (*TEXT_TASKS, VISION_TASK):
         print(f"  {task:8s} = {config.model_for(task)}")
     return 0
 
@@ -213,13 +254,15 @@ def cmd_config_set(args: argparse.Namespace) -> int:
             return 1
     elif key.startswith("models."):
         task = key.split(".", 1)[1]
-        if task not in ("general", "story", "code"):
-            print(f"Unknown task '{task}' (expected general/story/code).", file=sys.stderr)
+        valid_tasks = (*TEXT_TASKS, VISION_TASK)
+        if task not in valid_tasks:
+            print(f"Unknown task '{task}' (expected one of: {', '.join(valid_tasks)}).",
+                  file=sys.stderr)
             return 1
         config.models[task] = value
     else:
         print(f"Unknown setting '{key}'. Try: ollama_url, context_char_limit, "
-              "models.general, models.story, models.code", file=sys.stderr)
+              "models.general, models.story, models.code, models.vision", file=sys.stderr)
         return 1
     store.save(config)
     print(f"{key} = {value}")
@@ -240,13 +283,25 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--reset", action="store_true",
                        help="start this session's history over")
         if name == "chat":
-            p.add_argument("--task", default=DEFAULT_TASK, choices=list(SYSTEM_PROMPTS),
+            p.add_argument("--task", default=DEFAULT_TASK, choices=list(TEXT_TASKS),
                            help="which system prompt to use (default: general)")
         p.set_defaults(func=cmd_chat, _task=task if name != "chat" else None)
 
     add_chat_like("chat", DEFAULT_TASK, "General-purpose chat")
     add_chat_like("story", "story", "Creative writing / story assistant")
     add_chat_like("code", "code", "Coding assistant")
+
+    p_caption = sub.add_parser("caption", help="describe/ask about an image with a vision model")
+    p_caption.add_argument("image", help="path to an image file")
+    p_caption.add_argument("instruction", nargs="*",
+                           help="what to ask about it (default: describe it)")
+    p_caption.add_argument("--session", help="conversation name (default: 'vision')")
+    p_caption.add_argument("--reset", action="store_true",
+                           help="start this session's history over")
+    p_caption.set_defaults(func=cmd_caption)
+
+    p_gui = sub.add_parser("gui", help="launch the desktop app")
+    p_gui.set_defaults(func=cmd_gui)
 
     p_list = sub.add_parser("list", help="list saved conversations")
     p_list.set_defaults(func=cmd_list)

@@ -17,7 +17,7 @@ def _fake_ollama(monkeypatch):
     """Every test gets a working, canned Ollama by default; individual
     tests override .chat/.is_available for other scenarios."""
     monkeypatch.setattr(OllamaClient, "chat",
-                        lambda self, messages, model, on_token=None:
+                        lambda self, messages, model, on_token=None, images=None:
                         (on_token("canned reply") if on_token else None) or "canned reply")
     monkeypatch.setattr(OllamaClient, "is_available", lambda self: True)
     monkeypatch.setattr(OllamaClient, "list_models", lambda self: ["llama3.1", "qwen2.5-coder"])
@@ -166,3 +166,57 @@ def test_repl_mode_handles_ctrl_d(isolated_home, monkeypatch):
     exit_code = cli.main(["chat"])
     assert exit_code == 0
     assert ConversationStore().list_all() == []  # nothing was ever sent
+
+
+def test_caption_describes_image(isolated_home, tmp_path, capsys):
+    image = tmp_path / "cat.png"
+    image.write_bytes(b"fake bytes")
+    exit_code = cli.main(["caption", str(image), "what is in this picture?"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "canned reply" in out
+
+    conv = ConversationStore().load_or_create("vision", "vision")
+    assert "cat.png" in conv.messages[0].content
+    assert "what is in this picture?" in conv.messages[0].content
+
+
+def test_caption_default_instruction_when_none_given(isolated_home, tmp_path):
+    from personalai.services import vision_service
+
+    image = tmp_path / "dog.png"
+    image.write_bytes(b"fake bytes")
+    cli.main(["caption", str(image)])
+
+    conv = ConversationStore().load_or_create("vision", "vision")
+    assert vision_service.DEFAULT_INSTRUCTION in conv.messages[0].content
+
+
+def test_caption_missing_image_reports_error(isolated_home, capsys):
+    exit_code = cli.main(["caption", "nope.png"])
+    assert exit_code == 1
+    assert "not found" in capsys.readouterr().err
+
+
+def test_caption_custom_session(isolated_home, tmp_path):
+    image = tmp_path / "cat.png"
+    image.write_bytes(b"fake bytes")
+    cli.main(["caption", str(image), "--session", "my-photos"])
+    assert "my-photos" in ConversationStore().list_all()
+    assert "vision" not in ConversationStore().list_all()
+
+
+def test_gui_command_reports_missing_pyside_cleanly(isolated_home, monkeypatch, capsys):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "personalai.ui.app" or name.startswith("PySide6"):
+            raise ImportError("No module named 'PySide6'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    exit_code = cli.main(["gui"])
+    assert exit_code == 1
+    assert "PySide6" in capsys.readouterr().err

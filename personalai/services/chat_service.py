@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from personalai.core.config import Config
 from personalai.core.conversation import Conversation, ConversationStore
+from personalai.services import vision_service
 from personalai.services.ollama_client import OllamaClient
 
 SYSTEM_PROMPTS = {
@@ -38,9 +40,23 @@ SYSTEM_PROMPTS = {
         "Prefer the standard library and the user's existing stack over "
         "introducing new dependencies unless asked."
     ),
+    "vision": (
+        "You are an image description assistant. Describe images "
+        "accurately and concisely - key subjects, actions, setting, and "
+        "any notable details. If asked a specific question about the "
+        "image, answer that question directly using only what is "
+        "actually visible; say so if something can't be determined from "
+        "the image."
+    ),
 }
 
+# The tasks reachable through plain `myai chat --task ...` - "vision"
+# needs an image and lives behind `myai caption` instead, so it's kept
+# out of this list to avoid a confusing `--task vision` with no image.
+TEXT_TASKS = ("general", "story", "code")
+
 DEFAULT_TASK = "general"
+VISION_TASK = "vision"
 
 
 def system_prompt_for(task: str) -> str:
@@ -65,6 +81,27 @@ class ChatService:
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(system_prompt_for(conversation.task))
         reply = self.client.chat(messages, model, on_token=on_token)
+        conversation.append("assistant", reply)
+        self.store.save(conversation)
+        return reply
+
+    def send_with_image(
+        self,
+        conversation: Conversation,
+        instruction: str,
+        image_path: Path,
+        on_token: Callable[[str], None] | None = None,
+    ) -> str:
+        """Like send(), but attaches an image for a vision model. Only a
+        readable text note (not the image bytes) is persisted to the
+        conversation's JSON file - the actual base64 image is sent to
+        Ollama for this request only, never written to disk by us."""
+        image_b64 = vision_service.encode_image_base64(image_path)
+        note = f"[image: {image_path.name}] {instruction}".strip()
+        conversation.append("user", note)
+        model = self.config.model_for(conversation.task)
+        messages = conversation.as_ollama_messages(system_prompt_for(conversation.task))
+        reply = self.client.chat(messages, model, on_token=on_token, images=[image_b64])
         conversation.append("assistant", reply)
         self.store.save(conversation)
         return reply

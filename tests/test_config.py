@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from personalai.core.config import Config, ConfigStore, DEFAULT_MODELS
+from personalai.core.config import DEFAULT_MODELS, Config, ConfigStore
 
 
 def test_default_config_has_all_tasks():
