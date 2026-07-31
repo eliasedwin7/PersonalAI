@@ -76,6 +76,10 @@ class AgentTab(QWidget):
             AGENT_SESSION, AGENT_TASK
         )
         self._sending = False
+        self._active_mode: AgentMode | None = None
+        self._last_plan_request: str | None = None
+        self._updating_model_combo = False
+        self._available_models = self._load_available_models()
 
         self._bridge = _AgentBridge()
         self._bridge.activity.connect(self._on_activity)
@@ -94,15 +98,31 @@ class AgentTab(QWidget):
         browse_btn.clicked.connect(self._browse_workspace)
         top_row.addWidget(browse_btn)
 
-        top_row.addWidget(QLabel("Mode:"))
+        layout.addLayout(top_row)
+
+        control_row = QHBoxLayout()
+        control_row.addWidget(QLabel("Mode:"))
         self.mode_combo = QComboBox()
         for mode in AgentMode:
             self.mode_combo.addItem(MODE_LABELS[mode], mode.value)
         self.mode_combo.setCurrentIndex(
             self.mode_combo.findData(chat_service.config.agent_mode)
         )
-        top_row.addWidget(self.mode_combo)
-        layout.addLayout(top_row)
+        control_row.addWidget(self.mode_combo, stretch=1)
+        control_row.addWidget(QLabel("Model:"))
+        self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
+        self.model_combo.setMinimumWidth(180)
+        self.model_combo.setToolTip(
+            "Model used by Agent. Pick an installed Ollama model or type one."
+        )
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        control_row.addWidget(self.model_combo)
+        self.refresh_model_btn = QPushButton("Refresh")
+        self.refresh_model_btn.setToolTip("Refresh installed Ollama models.")
+        self.refresh_model_btn.clicked.connect(self._refresh_available_models)
+        control_row.addWidget(self.refresh_model_btn)
+        layout.addLayout(control_row)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
 
@@ -111,6 +131,7 @@ class AgentTab(QWidget):
         transcript_layout.setContentsMargins(0, 0, 0, 0)
         transcript_layout.addWidget(QLabel("Conversation"))
         self.transcript = QTextEdit()
+        self.transcript.setObjectName("chatTranscript")
         self.transcript.setReadOnly(True)
         transcript_layout.addWidget(self.transcript)
         splitter.addWidget(transcript_container)
@@ -120,6 +141,7 @@ class AgentTab(QWidget):
         activity_layout.setContentsMargins(0, 0, 0, 0)
         activity_layout.addWidget(QLabel("Activity (every tool call, regardless of mode)"))
         self.activity_log = QPlainTextEdit()
+        self.activity_log.setObjectName("toolOutput")
         self.activity_log.setReadOnly(True)
         activity_layout.addWidget(self.activity_log)
         splitter.addWidget(activity_container)
@@ -136,6 +158,12 @@ class AgentTab(QWidget):
         self.input_edit.setMaximumHeight(90)
         self.input_edit.submitted.connect(self._send)
         input_row.addWidget(self.input_edit, stretch=1)
+        self.do_it_btn = QPushButton("Do it")
+        self.do_it_btn.setObjectName("primaryButton")
+        self.do_it_btn.setEnabled(False)
+        self.do_it_btn.setToolTip("Run the latest Plan response once in Auto-accept mode.")
+        self.do_it_btn.clicked.connect(self._do_latest_plan)
+        input_row.addWidget(self.do_it_btn)
         self.send_btn = QPushButton("Send")
         self.send_btn.setObjectName("primaryButton")
         self.send_btn.clicked.connect(self._send)
@@ -143,6 +171,7 @@ class AgentTab(QWidget):
         layout.addLayout(input_row)
 
         self._render_transcript()
+        self._update_model_combo()
 
     # ---- workspace/mode ----
 
@@ -156,6 +185,42 @@ class AgentTab(QWidget):
 
     def _current_mode(self) -> AgentMode:
         return AgentMode(self.mode_combo.currentData())
+
+    def _load_available_models(self) -> list[str]:
+        try:
+            from personalai.services.ollama_client import OllamaClient
+
+            return OllamaClient(self.chat_service.config.ollama_url).list_models()
+        except (ImportError, OSError, PersonalAIError):
+            return []
+
+    def _refresh_available_models(self) -> None:
+        self._available_models = self._load_available_models()
+        self._update_model_combo()
+
+    def _update_model_combo(self) -> None:
+        current = self.chat_service.config.model_for(AGENT_TASK)
+        self._updating_model_combo = True
+        try:
+            items = list(self._available_models)
+            if current and current not in items:
+                items.insert(0, current)
+            self.model_combo.clear()
+            self.model_combo.addItems(items)
+            self.model_combo.setCurrentText(current)
+        finally:
+            self._updating_model_combo = False
+
+    def _on_model_changed(self, model: str) -> None:
+        if self._updating_model_combo:
+            return
+        model = model.strip()
+        if not model:
+            return
+        self.chat_service.config.models[AGENT_TASK] = model
+        self.chat_service.config.fast_model = ""
+        if self.config_store is not None:
+            self.config_store.save(self.chat_service.config)
 
     # ---- transcript rendering ----
     #
@@ -175,12 +240,7 @@ class AgentTab(QWidget):
                 continue
             if msg.role == "assistant" and agent_service.parse_tool_call(msg.content):
                 continue
-            transcript_view.append_role_label(self.transcript, msg.role)
-            if msg.role == "assistant":
-                transcript_view.append_markdown_body(self.transcript, msg.content)
-            else:
-                transcript_view.append_body(self.transcript, msg.content)
-            transcript_view.append_body(self.transcript, "\n\n")
+            transcript_view.append_message_block(self.transcript, msg.role, msg.content, msg.timestamp)
         transcript_view.scroll_to_bottom(self.transcript)
 
     # ---- activity + confirmation (called from the worker thread via signals) ----
@@ -216,22 +276,46 @@ class AgentTab(QWidget):
         text = self.input_edit.toPlainText().strip()
         if not text:
             return
+        self._submit_turn(text, self._current_mode())
+
+    def _do_latest_plan(self) -> None:
+        if self._sending or not self._last_plan_request:
+            return
+        self._submit_turn(
+            self._last_plan_request,
+            AgentMode.AUTO_ACCEPT,
+            display_text=f"Do it: {self._last_plan_request}",
+        )
+
+    def _workspace_path(self) -> Path | None:
         workspace_str = self.workspace_edit.text().strip()
         if not workspace_str:
             QMessageBox.warning(self, "Agent", "Choose a workspace folder first.")
-            return
+            return None
         workspace = Path(workspace_str).expanduser()
         if not workspace.is_dir():
             QMessageBox.warning(self, "Agent", f"Workspace folder not found: {workspace}")
+            return None
+        return workspace
+
+    def _submit_turn(
+        self,
+        text: str,
+        mode: AgentMode,
+        display_text: str | None = None,
+    ) -> None:
+        workspace = self._workspace_path()
+        if workspace is None:
             return
-
         self.input_edit.clear()
-        transcript_view.append_role_label(self.transcript, "user")
-        transcript_view.append_body(self.transcript, text + "\n\n")
+        transcript_view.append_message_block(self.transcript, "user", display_text or text)
         self._sending = True
+        self._active_mode = mode
+        self.do_it_btn.setEnabled(False)
         self.send_btn.setEnabled(False)
+        if mode is AgentMode.PLAN:
+            self._last_plan_request = text
 
-        mode = self._current_mode()
         kwargs: dict = {
             "on_activity": self._bridge.activity.emit,
         }
@@ -244,16 +328,25 @@ class AgentTab(QWidget):
         )
 
     def _on_done(self, reply: str) -> None:
-        transcript_view.append_role_label(self.transcript, "assistant")
-        transcript_view.append_markdown_body(self.transcript, reply)
-        transcript_view.append_body(self.transcript, "\n\n")
+        transcript_view.append_message_block(self.transcript, "assistant", reply)
+        completed_mode = self._active_mode
+        if completed_mode is not AgentMode.PLAN:
+            self._last_plan_request = None
+        self._active_mode = None
         self._sending = False
         self.send_btn.setEnabled(True)
+        self.do_it_btn.setEnabled(
+            completed_mode is AgentMode.PLAN and bool(self._last_plan_request)
+        )
 
     def _on_error(self, exc: BaseException) -> None:
         if isinstance(exc, PersonalAIError):
-            transcript_view.append_body(self.transcript, f"[error] {exc}\n\n")
+            transcript_view.append_message_block(self.transcript, "error", str(exc))
         else:
-            transcript_view.append_body(self.transcript, f"[unexpected error] {exc}\n\n")
+            transcript_view.append_message_block(self.transcript, "error", f"Unexpected error: {exc}")
+        if self._active_mode is not AgentMode.PLAN:
+            self._last_plan_request = None
+        self._active_mode = None
         self._sending = False
         self.send_btn.setEnabled(True)
+        self.do_it_btn.setEnabled(False)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -30,6 +31,7 @@ from personalai.core.conversation import Conversation
 ROLE_LABELS = {
     "user": ("YOU", "#9fb2ff"),
     "assistant": ("NEXUS", "#7ee0b2"),
+    "error": ("ERROR", "#ff8a9a"),
 }
 
 
@@ -82,18 +84,27 @@ def render_transcript(text_edit: QTextEdit, conversation: Conversation | None) -
     scroll_to_bottom(text_edit)
 
 
+def render_messages(text_edit: QTextEdit, messages) -> None:
+    text_edit.clear()
+    for msg in messages:
+        append_message_block(text_edit, msg.role, msg.content, getattr(msg, "timestamp", ""))
+    scroll_to_bottom(text_edit)
+
+
 def append_message_block(text_edit: QTextEdit, role: str, content: str, timestamp: str = "") -> None:
     label, color = ROLE_LABELS.get(role, (role.upper(), "#c8c8c8"))
     cursor = text_edit.textCursor()
     cursor.movePosition(cursor.MoveOperation.End)
 
     table_format = QTextTableFormat()
-    table_format.setCellPadding(12)
+    table_format.setCellPadding(13)
     table_format.setCellSpacing(0)
-    table_format.setBorder(1)
-    table_format.setBorderBrush(QColor("#263041"))
-    table_format.setBackground(QColor("#12151c" if role == "assistant" else "#151a26"))
-    table_format.setColumnWidthConstraints([QTextLength(QTextLength.Type.PercentageLength, 100)])
+    table_format.setBorder(0)
+    table_format.setBackground(QColor(_bubble_background(role)))
+    table_format.setAlignment(
+        Qt.AlignmentFlag.AlignRight if role == "user" else Qt.AlignmentFlag.AlignLeft
+    )
+    table_format.setWidth(QTextLength(QTextLength.Type.PercentageLength, 78))
     table = cursor.insertTable(1, 1, table_format)
     cell_cursor = table.cellAt(0, 0).firstCursorPosition()
 
@@ -120,6 +131,14 @@ def append_message_block(text_edit: QTextEdit, role: str, content: str, timestam
     cursor = table.lastCursorPosition()
     text_edit.setTextCursor(cursor)
     append_body(text_edit, "\n\n")
+
+
+def _bubble_background(role: str) -> str:
+    if role == "user":
+        return "#1a2440"
+    if role == "error":
+        return "#2a151b"
+    return "#151922"
 
 
 def _short_time(timestamp: str) -> str:

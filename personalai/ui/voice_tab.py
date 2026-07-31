@@ -201,6 +201,7 @@ class VoiceTab(QWidget):
 
         layout.addWidget(QLabel("Conversation"))
         self.transcript = QTextEdit()
+        self.transcript.setObjectName("chatTranscript")
         self.transcript.setReadOnly(True)
         layout.addWidget(self.transcript, stretch=1)
 
@@ -300,10 +301,8 @@ class VoiceTab(QWidget):
             self.chat_service.config.voice_commands_enabled,
         )
         if command is not None:
-            transcript_view.append_role_label(self.transcript, "user")
-            transcript_view.append_body(self.transcript, text + "\n\n")
-            transcript_view.append_role_label(self.transcript, "assistant")
-            transcript_view.append_body(self.transcript, command.response + "\n\n")
+            transcript_view.append_message_block(self.transcript, "user", text)
+            transcript_view.append_message_block(self.transcript, "assistant", command.response)
             self.command_requested.emit(command)
             if command.action == "voice_greeting":
                 self._conversation_mode_active = True
@@ -315,8 +314,7 @@ class VoiceTab(QWidget):
             else:
                 self._finish_voice_turn()
             return
-        transcript_view.append_role_label(self.transcript, "user")
-        transcript_view.append_body(self.transcript, text + "\n\n")
+        transcript_view.append_message_block(self.transcript, "user", text)
         transcript_view.append_role_label(self.transcript, "assistant")
         self._set_state("thinking")
         self.task_runner.submit(

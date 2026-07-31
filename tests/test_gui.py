@@ -240,6 +240,26 @@ def test_chat_tab_switching_task_loads_that_tasks_default_session(
     assert tab.conversation.name == "code"
 
 
+def test_chat_tab_inline_model_switcher_saves_current_task_model(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from personalai.core.config import ConfigStore
+    from personalai.services.ollama_client import OllamaClient
+    from personalai.ui.chat_tab import ChatTab
+
+    monkeypatch.setattr(OllamaClient, "list_models", lambda self: ["llama3.1", "mistral"])
+    store = ConfigStore(tmp_path / "config.json")
+    chat_service.config.fast_model = "qwen3:1.7b"
+    tab = ChatTab(chat_service, task_runner, store)
+    qtbot.addWidget(tab)
+
+    tab.model_combo.setCurrentText("mistral")
+
+    reloaded = store.load()
+    assert reloaded.model_for("general") == "mistral"
+    assert reloaded.fast_model == ""
+
+
 def test_chat_tab_new_session_creates_and_lists_it(qtbot, chat_service, task_runner, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
 
@@ -1126,6 +1146,63 @@ def test_agent_tab_plan_mode_send_shows_final_reply_and_stays_readonly(
                     timeout=5000)
     assert "what would you do?" in tab.transcript.toPlainText()
     assert list(workspace.iterdir()) == []
+    assert tab.do_it_btn.isEnabled() is True
+
+
+def test_agent_tab_do_it_runs_latest_plan_once_in_auto_accept(
+    qtbot, chat_service, task_runner, tmp_path
+):
+    from personalai.ui.agent_tab import AgentTab
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    replies = iter(["I would create the file.", "Created it."])
+    calls = []
+
+    def fake_chat(messages, model, on_token=None, images=None):
+        calls.append((messages, model))
+        return next(replies)
+
+    chat_service.client.chat = fake_chat
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.workspace_edit.setText(str(workspace))
+    tab.input_edit.setPlainText("create hello.py")
+    tab._send()
+    qtbot.waitUntil(lambda: tab.do_it_btn.isEnabled(), timeout=5000)
+
+    tab.do_it_btn.click()
+    qtbot.waitUntil(lambda: not tab._sending and "Created it." in tab.transcript.toPlainText(),
+                    timeout=5000)
+
+    assert "Do it: create hello.py" in tab.transcript.toPlainText()
+    assert "AUTO-ACCEPT mode" in calls[-1][0][0]["content"]
+    assert tab.do_it_btn.isEnabled() is False
+
+
+def test_agent_tab_inline_model_switcher_controls_agent_model(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from personalai.core.config import ConfigStore
+    from personalai.services.ollama_client import OllamaClient
+    from personalai.ui.agent_tab import AgentTab
+
+    monkeypatch.setattr(OllamaClient, "list_models", lambda self: ["llama3.1", "mistral"])
+    store = ConfigStore(tmp_path / "config.json")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    tab = AgentTab(chat_service, task_runner, store)
+    qtbot.addWidget(tab)
+    tab.model_combo.setCurrentText("mistral")
+    tab.workspace_edit.setText(str(workspace))
+    tab.input_edit.setPlainText("what would you do?")
+    tab._send()
+
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
+    assert chat_service.client.calls[-1][1] == "mistral"
+    assert store.load().model_for("general") == "mistral"
 
 
 def test_agent_tab_filters_tool_call_bookkeeping_from_transcript(

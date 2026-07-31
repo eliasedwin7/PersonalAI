@@ -113,6 +113,8 @@ class ChatTab(QWidget):
         self._send_task: TaskHandle | None = None
         self._memory_suggesting = False
         self._generation_started_at: float | None = None
+        self._updating_model_combo = False
+        self._available_models = self._load_available_models()
         self.setAcceptDrops(True)
 
         outer = QHBoxLayout(self)
@@ -170,9 +172,21 @@ class ChatTab(QWidget):
         self.task_combo.currentTextChanged.connect(self._on_task_changed)
         self.task_combo.setToolTip("Select the assistant mode for this conversation.")
         top_row.addWidget(self.task_combo)
-        self.model_label = QLabel()
+        self.model_label = QLabel("Model:")
         self.model_label.setObjectName("mutedLabel")
         top_row.addWidget(self.model_label)
+        self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
+        self.model_combo.setMinimumWidth(170)
+        self.model_combo.setToolTip(
+            "Model used for this chat mode. Pick an installed Ollama model or type one."
+        )
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        top_row.addWidget(self.model_combo)
+        self.refresh_model_btn = QPushButton("Refresh")
+        self.refresh_model_btn.setToolTip("Refresh installed Ollama models.")
+        self.refresh_model_btn.clicked.connect(self._refresh_available_models)
+        top_row.addWidget(self.refresh_model_btn)
         self.deep_btn = QPushButton("Deep")
         self._set_button_icon(self.deep_btn, QStyle.StandardPixmap.SP_ArrowUp)
         self.deep_btn.setCheckable(True)
@@ -429,10 +443,48 @@ class ChatTab(QWidget):
         self.memory_btn.setEnabled(not self._sending and not self._memory_suggesting and not is_empty)
 
     def _update_model_label(self) -> None:
-        model = self.chat_service.config.model_for(self.task_combo.currentText())
-        self.model_label.setText(f"Model: {model}")
+        task = self.task_combo.currentText()
+        model = self.chat_service.config.model_for(task)
+        self._set_model_combo(model)
         if self.conversation is not None:
             self.conversation_title.setText(self.conversation.name.replace("_", " "))
+
+    def _load_available_models(self) -> list[str]:
+        try:
+            from personalai.services.ollama_client import OllamaClient
+
+            return OllamaClient(self.chat_service.config.ollama_url).list_models()
+        except (ImportError, OSError, PersonalAIError):
+            return []
+
+    def _refresh_available_models(self) -> None:
+        self._available_models = self._load_available_models()
+        self._update_model_label()
+
+    def _set_model_combo(self, current: str) -> None:
+        self._updating_model_combo = True
+        try:
+            items = list(self._available_models)
+            if current and current not in items:
+                items.insert(0, current)
+            self.model_combo.clear()
+            self.model_combo.addItems(items)
+            self.model_combo.setCurrentText(current)
+        finally:
+            self._updating_model_combo = False
+
+    def _on_model_changed(self, model: str) -> None:
+        if self._updating_model_combo:
+            return
+        model = model.strip()
+        if not model:
+            return
+        task = self.task_combo.currentText()
+        self.chat_service.config.models[task] = model
+        if task == "general":
+            self.chat_service.config.fast_model = ""
+        if self.config_store is not None:
+            self.config_store.save(self.chat_service.config)
 
     def _can_regenerate(self) -> bool:
         if self._sending or self.conversation is None or len(self.conversation.messages) < 2:
@@ -578,8 +630,7 @@ class ChatTab(QWidget):
 
         self.input_edit.clear()
         self.content_stack.setCurrentWidget(self.transcript)
-        transcript_view.append_role_label(self.transcript, "user")
-        transcript_view.append_body(self.transcript, display_text + "\n\n")
+        transcript_view.append_message_block(self.transcript, "user", display_text)
         transcript_view.append_role_label(self.transcript, "assistant")
         self._sending = True
         self._start_generation_status()
@@ -625,7 +676,7 @@ class ChatTab(QWidget):
         self._reload_sessions()
 
     def _on_error(self, exc: BaseException) -> None:
-        transcript_view.append_body(self.transcript, f"\n[error] {exc}\n\n")
+        transcript_view.append_message_block(self.transcript, "error", str(exc))
         self._sending = False
         self._stop_generation_status()
         self._send_task = None
