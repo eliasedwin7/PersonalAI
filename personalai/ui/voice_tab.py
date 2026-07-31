@@ -146,7 +146,7 @@ class VoiceTab(QWidget):
         device_row = QHBoxLayout()
         device_row.addWidget(QLabel("Microphone:"))
         self.mic_combo = QComboBox()
-        self.mic_combo.setToolTip("Choose the microphone PersonalAI should listen to.")
+        self.mic_combo.setToolTip("Choose the microphone Nexus should listen to.")
         device_row.addWidget(self.mic_combo, stretch=1)
         self.refresh_mics_btn = QPushButton("Refresh")
         self.refresh_mics_btn.clicked.connect(self._refresh_microphones)

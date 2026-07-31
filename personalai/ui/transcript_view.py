@@ -19,8 +19,8 @@ from PySide6.QtWidgets import QTextEdit
 from personalai.core.conversation import Conversation
 
 ROLE_LABELS = {
-    "user": ("you", "#6fb1fc"),
-    "assistant": ("ai", "#8fd68f"),
+    "user": ("YOU", "#aeb4a7"),
+    "assistant": ("NEXUS", "#75d8a1"),
 }
 
 
@@ -32,7 +32,7 @@ def append_role_label(text_edit: QTextEdit, role: str) -> None:
     bold.setForeground(QColor(color))
     bold.setFontWeight(QFont.Weight.Bold)
     cursor.setCharFormat(bold)
-    cursor.insertText(f"{label}> ")
+    cursor.insertText(f"{label}\n")
     cursor.setCharFormat(QTextCharFormat())  # back to default for the body text
     text_edit.setTextCursor(cursor)
 

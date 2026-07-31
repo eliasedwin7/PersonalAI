@@ -15,14 +15,14 @@ def test_append_role_label_shows_prefix(qtbot):
     edit = QTextEdit()
     qtbot.addWidget(edit)
     transcript_view.append_role_label(edit, "user")
-    assert edit.toPlainText() == "you> "
+    assert edit.toPlainText() == "YOU\n"
 
 
 def test_append_role_label_unknown_role_falls_back_to_role_name(qtbot):
     edit = QTextEdit()
     qtbot.addWidget(edit)
     transcript_view.append_role_label(edit, "system")
-    assert edit.toPlainText() == "system> "
+    assert edit.toPlainText() == "system\n"
 
 
 def test_append_body_is_literal_plain_text(qtbot):
@@ -59,8 +59,8 @@ def test_render_transcript_shows_all_messages(qtbot):
     ])
     transcript_view.render_transcript(edit, conv)
     text = edit.toPlainText()
-    assert "you> hi" in text
-    assert "ai> hello" in text
+    assert "YOU\nhi" in text
+    assert "NEXUS\nhello" in text
 
 
 def test_render_transcript_renders_assistant_markdown_but_keeps_user_literal(qtbot):

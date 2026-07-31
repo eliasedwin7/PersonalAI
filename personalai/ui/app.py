@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     app = QApplication(argv if argv is not None else sys.argv[:1])
-    app.setApplicationName("PersonalAI")
+    app.setApplicationName("Nexus")
     if QSystemTrayIcon.isSystemTrayAvailable():
         # Only skip quit-on-close when there's actually a tray to fall back
         # to - otherwise closing the last window would leave a windowless,

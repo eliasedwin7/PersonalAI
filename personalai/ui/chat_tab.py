@@ -115,14 +115,14 @@ class ChatTab(QWidget):
         right_layout.setContentsMargins(24, 18, 24, 18)
         right_layout.setSpacing(12)
         top_row = QHBoxLayout()
-        task_title = QLabel("Conversation")
-        task_title.setObjectName("paneTitle")
-        top_row.addWidget(task_title)
+        self.conversation_title = QLabel("New conversation")
+        self.conversation_title.setObjectName("paneTitle")
+        top_row.addWidget(self.conversation_title)
         top_row.addStretch(1)
-        top_row.addWidget(QLabel("Mode"))
         self.task_combo = QComboBox()
         self.task_combo.addItems(list(TEXT_TASKS))
         self.task_combo.currentTextChanged.connect(self._on_task_changed)
+        self.task_combo.setToolTip("Select the assistant mode for this conversation.")
         top_row.addWidget(self.task_combo)
         self.model_label = QLabel()
         self.model_label.setObjectName("mutedLabel")
@@ -139,7 +139,9 @@ class ChatTab(QWidget):
         top_row.addWidget(self.attach_btn)
         right_layout.addLayout(top_row)
 
-        attachment_row = QHBoxLayout()
+        self.attachment_widget = QWidget()
+        attachment_row = QHBoxLayout(self.attachment_widget)
+        attachment_row.setContentsMargins(0, 0, 0, 0)
         self.image_preview = QLabel()
         self.image_preview.setFixedHeight(56)
         self.image_preview.hide()
@@ -151,7 +153,7 @@ class ChatTab(QWidget):
         self.clear_attachments_btn.clicked.connect(self._clear_attachments)
         self.clear_attachments_btn.setEnabled(False)
         attachment_row.addWidget(self.clear_attachments_btn)
-        right_layout.addLayout(attachment_row)
+        right_layout.addWidget(self.attachment_widget)
 
         self.content_stack = QStackedWidget()
         self.empty_state = QWidget()
@@ -170,6 +172,7 @@ class ChatTab(QWidget):
         empty_layout.addLayout(suggestions)
 
         self.transcript = QTextEdit()
+        self.transcript.setObjectName("chatTranscript")
         self.transcript.setReadOnly(True)
         self.content_stack.addWidget(self.empty_state)
         self.content_stack.addWidget(self.transcript)
@@ -178,8 +181,9 @@ class ChatTab(QWidget):
         input_row = QHBoxLayout()
         self.input_edit = ChatInputEdit()
         self.input_edit.setPlaceholderText(
-            "Message PersonalAI"
+            "Message Nexus"
         )
+        self.input_edit.setMinimumHeight(72)
         self.input_edit.setMaximumHeight(INPUT_MAX_HEIGHT)
         self.input_edit.submitted.connect(self._send)
         input_row.addWidget(self.input_edit, stretch=1)
@@ -294,6 +298,8 @@ class ChatTab(QWidget):
     def _update_model_label(self) -> None:
         model = self.chat_service.config.model_for(self.task_combo.currentText())
         self.model_label.setText(f"Model: {model}")
+        if self.conversation is not None:
+            self.conversation_title.setText(self.conversation.name.replace("_", " "))
 
     def _can_regenerate(self) -> bool:
         if self._sending or self.conversation is None or len(self.conversation.messages) < 2:
@@ -370,6 +376,7 @@ class ChatTab(QWidget):
         self.context_label.setText("No attachments" if not staged else ", ".join(staged))
         self.clear_attachments_btn.setEnabled(bool(staged))
         self.clear_attachments_btn.setVisible(bool(staged))
+        self.attachment_widget.setVisible(bool(staged))
 
     @staticmethod
     def _dropped_image_path(mime_data) -> Path | None:

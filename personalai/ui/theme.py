@@ -54,6 +54,7 @@ def apply_dark_theme(app: QApplication) -> None:
         QTabBar#navigation::tab:selected { color: #f4f1e9; border-bottom: 2px solid #63b58c; }
         QListWidget { border: none; background: transparent; outline: none; }
         QListWidget::item { border-radius: 4px; padding: 8px 9px; margin: 1px 0; }
+        QListWidget::item:hover { background: #303832; color: #f4f1e9; }
         QListWidget::item:selected { background: #344d43; color: #f5fff7; }
         QPushButton, QToolButton { background: #333731; border: 1px solid #4a4f47; border-radius: 4px; padding: 6px 10px; min-height: 20px; }
         QPushButton:hover, QToolButton:hover { background: #40453d; border-color: #7f8e7d; }
@@ -63,6 +64,7 @@ def apply_dark_theme(app: QApplication) -> None:
         QPushButton#primaryButton:hover { background: #4d9678; }
         QLineEdit, QPlainTextEdit, QTextEdit, QComboBox { border: 1px solid #42473f; border-radius: 4px; padding: 6px; background: #191b18; }
         QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus { border-color: #65a98b; }
+        QTextEdit#chatTranscript { border: none; background: transparent; padding: 14px 10px; }
         QProgressBar { border: 1px solid #4c514a; border-radius: 3px; background: #1b1d1a; min-height: 8px; }
         QProgressBar::chunk { background: #5bbf8a; border-radius: 2px; }
         QTabWidget::pane { border: 0; background: #1e201d; }

@@ -556,6 +556,19 @@ def test_settings_dialog_saves(qtbot, tmp_path):
     assert reloaded.model_for("code") == "deepseek-coder-v2"
 
 
+def test_settings_dialog_groups_related_controls_into_tabs(qtbot, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+
+    assert [dialog.tabs.tabText(index) for index in range(dialog.tabs.count())] == [
+        "Connection", "Models", "Voice", "Assistant"
+    ]
+
+
 def test_settings_dialog_history_char_limit_saves(qtbot, tmp_path):
     from personalai.core.config import ConfigStore
     from personalai.ui.settings_dialog import SettingsDialog

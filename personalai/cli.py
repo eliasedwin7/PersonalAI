@@ -1,4 +1,4 @@
-"""PersonalAI command-line interface.
+"""Nexus command-line interface.
 
     myai chat ["message"] [--task general|story|code] [--session NAME]
               [--context FILE-OR-FOLDER ...] [--reset]
@@ -90,7 +90,7 @@ def _run_one_message(service: ChatService, conversation: Conversation, message: 
 
 
 def _run_repl(service: ChatService, conversation: Conversation) -> None:
-    print(f"PersonalAI - task '{conversation.task}', session '{conversation.name}'. "
+    print(f"Nexus - task '{conversation.task}', session '{conversation.name}'. "
           "Type 'exit' or Ctrl+D to quit.\n")
     while True:
         try:
@@ -149,7 +149,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
 
 def _run_repl_with_context(service: ChatService, conversation: Conversation,
                            first_context: str) -> None:
-    print(f"PersonalAI - task '{conversation.task}', session '{conversation.name}'. "
+    print(f"Nexus - task '{conversation.task}', session '{conversation.name}'. "
           "Type 'exit' or Ctrl+D to quit.\n")
     first = True
     while True:
@@ -319,7 +319,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
             print(f"\n[error] {exc}", file=sys.stderr)
             return False
 
-    print(f"PersonalAI agent - workspace '{workspace}', mode '{mode.value}'.")
+    print(f"Nexus agent - workspace '{workspace}', mode '{mode.value}'.")
     if args.message:
         return 0 if run_one(" ".join(args.message)) else 1
 

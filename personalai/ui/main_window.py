@@ -16,14 +16,13 @@ import base64
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
-    QMessageBox,
     QPushButton,
     QStackedWidget,
     QSystemTrayIcon,
@@ -32,7 +31,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from personalai import __version__
 from personalai.core.config import ConfigStore
 from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
@@ -55,15 +53,13 @@ class MainWindow(QMainWindow):
         self.config_store = config_store
         self.task_runner = TaskRunner(self)
 
-        self.setWindowTitle("PersonalAI")
+        self.setWindowTitle("Nexus")
         if ICON_PATH.exists():
             self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.resize(1000, 700)
         self._restore_geometry()
 
         self._build_workspace()
-
-        self._build_menu()
 
         self.status_label = QLabel(f"{chat_service.config.backend}: checking…")
         self.statusBar().addPermanentWidget(self.status_label)
@@ -90,7 +86,7 @@ class MainWindow(QMainWindow):
         app_bar_layout = QHBoxLayout(app_bar)
         app_bar_layout.setContentsMargins(18, 8, 18, 8)
         app_bar_layout.setSpacing(14)
-        brand = QLabel("PersonalAI")
+        brand = QLabel("Nexus")
         brand.setObjectName("brand")
         app_bar_layout.addWidget(brand)
         self.navigation = QTabBar()
@@ -142,32 +138,6 @@ class MainWindow(QMainWindow):
         self.chat_service.config.window_geometry = base64.b64encode(raw).decode("ascii")
         self.config_store.save(self.chat_service.config)
 
-    # ---- menu ----
-
-    def _build_menu(self) -> None:
-        file_menu = self.menuBar().addMenu("&File")
-        settings_action = QAction("&Settings…", self)
-        settings_action.triggered.connect(self._open_settings)
-        file_menu.addAction(settings_action)
-        file_menu.addSeparator()
-        exit_action = QAction("E&xit", self)
-        exit_action.triggered.connect(self._quit)
-        file_menu.addAction(exit_action)
-
-        help_menu = self.menuBar().addMenu("&Help")
-        about_action = QAction("&About PersonalAI", self)
-        about_action.triggered.connect(self._show_about)
-        help_menu.addAction(about_action)
-
-    def _show_about(self) -> None:
-        QMessageBox.information(
-            self, "About PersonalAI",
-            f"PersonalAI {__version__}\n\n"
-            "A local, offline AI assistant for chat, story writing, coding "
-            "help, and image captioning - backed by Ollama, Claude, or any "
-            "OpenAI-compatible API.",
-        )
-
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.chat_service.config, self.config_store, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -210,10 +180,10 @@ class MainWindow(QMainWindow):
         self.tray = QSystemTrayIcon(self)
         if ICON_PATH.exists():
             self.tray.setIcon(QIcon(str(ICON_PATH)))
-        self.tray.setToolTip("PersonalAI")
+        self.tray.setToolTip("Nexus")
 
         menu = QMenu()
-        show_action = menu.addAction("Show PersonalAI")
+        show_action = menu.addAction("Show Nexus")
         show_action.triggered.connect(self._show_and_raise)
         menu.addSeparator()
         quit_action = menu.addAction("Quit")
@@ -247,7 +217,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.hide()
             self.tray.showMessage(
-                "PersonalAI", "Still running in the tray - right-click the "
+                "Nexus", "Still running in the tray - right-click the "
                 "icon to quit.", QSystemTrayIcon.MessageIcon.Information, 2000,
             )
         else:

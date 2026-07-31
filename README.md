@@ -1,4 +1,8 @@
-# PersonalAI
+# Nexus
+
+Nexus is the user-facing name. The existing `personalai` package, `myai`
+command, scripts, and `~/.personalai/` data directory remain unchanged for
+compatibility.
 
 **Your own AI assistant - runs fully offline against a local Ollama model
 by default, or swap in Claude / OpenAI (or any OpenAI-compatible /

@@ -1,8 +1,8 @@
-# PyInstaller spec for PersonalAI's desktop GUI (one-folder, windowed).
+# PyInstaller spec for Nexus's desktop GUI (one-folder, windowed).
 #
 # Build with:  Build-PersonalAI-Exe.ps1   (or: pyinstaller personalai.spec)
 #
-# Produces dist/PersonalAI/PersonalAI.exe - a real double-clickable app,
+# Produces dist/Nexus/Nexus.exe - a real double-clickable app,
 # no conda/terminal needed to launch it (though the terminal `myai` command
 # still works the same as always for one-shot/automated use).
 #
@@ -58,7 +58,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="PersonalAI",
+    name="Nexus",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -74,5 +74,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="PersonalAI",
+    name="Nexus",
 )

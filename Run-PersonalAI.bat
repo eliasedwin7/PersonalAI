@@ -1,5 +1,5 @@
 @echo off
-rem Launches an interactive PersonalAI chat session (general task).
+rem Launches an interactive Nexus chat session (general task).
 rem For story/code modes or one-shot messages, use a terminal directly:
 rem   conda run -n personalai myai story
 rem   conda run -n personalai myai code "explain this regex: ..."

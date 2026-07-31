@@ -1,12 +1,12 @@
 # ==========================================
-# PersonalAI - PyInstaller build (one-folder, windowed)
+# Nexus - PyInstaller build (one-folder, windowed)
 #
 # Run from an Anaconda Prompt:
 #   powershell -ExecutionPolicy Bypass -File Build-PersonalAI-Exe.ps1
 #   powershell -ExecutionPolicy Bypass -File Build-PersonalAI-Exe.ps1 -Shortcut
 #
-# Produces dist\PersonalAI\PersonalAI.exe - double-click it, no conda or
-# terminal needed. -Shortcut also drops a "PersonalAI" shortcut on your
+# Produces dist\Nexus\Nexus.exe - double-click it, no conda or
+# terminal needed. -Shortcut also drops a "Nexus" shortcut on your
 # Desktop pointing at it.
 # ==========================================
 
@@ -17,7 +17,7 @@ param(
 $ErrorActionPreference = "Stop"
 $EnvName = "personalai"
 
-Write-Host "===== PersonalAI Exe Builder ====="
+Write-Host "===== Nexus Exe Builder ====="
 
 try { conda --version | Out-Null }
 catch {
@@ -44,20 +44,20 @@ try {
     Pop-Location
 }
 
-$exePath = "$PSScriptRoot\dist\PersonalAI\PersonalAI.exe"
+$exePath = "$PSScriptRoot\dist\Nexus\Nexus.exe"
 if (!(Test-Path $exePath)) { throw "Build finished but $exePath is missing." }
 
 if ($Shortcut) {
     Write-Host "Creating a Desktop shortcut..."
     $desktop = [Environment]::GetFolderPath("Desktop")
     $shell = New-Object -ComObject WScript.Shell
-    $lnk = $shell.CreateShortcut("$desktop\PersonalAI.lnk")
+    $lnk = $shell.CreateShortcut("$desktop\Nexus.lnk")
     $lnk.TargetPath = $exePath
-    $lnk.WorkingDirectory = "$PSScriptRoot\dist\PersonalAI"
+    $lnk.WorkingDirectory = "$PSScriptRoot\dist\Nexus"
     $lnk.IconLocation = $exePath
-    $lnk.Description = "PersonalAI - your local, offline AI assistant"
+    $lnk.Description = "Nexus - your local, offline AI assistant"
     $lnk.Save()
-    Write-Host "  Shortcut created: $desktop\PersonalAI.lnk"
+    Write-Host "  Shortcut created: $desktop\Nexus.lnk"
 }
 
 Write-Host ""
