@@ -16,6 +16,10 @@ class UserFacingError(PersonalAIError):
         return str(self)
 
 
+class GenerationCancelled(PersonalAIError):
+    """A streamed generation was deliberately stopped by the user."""
+
+
 class BackendUnavailable(PersonalAIError):
     """The active LLM backend (Ollama, Claude, or an OpenAI-compatible
     API) isn't reachable, or isn't configured (e.g. missing API key)."""

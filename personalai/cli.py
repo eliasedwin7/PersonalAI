@@ -9,6 +9,7 @@
     myai list                       # saved conversations
     myai show NAME [--full]         # print a conversation's transcript
     myai models                     # models Ollama currently has pulled
+    myai export PATH                # ZIP backup of conversations and memory
     myai backends                   # list backends + active one
     myai config show
     myai config set KEY VALUE       # e.g. backend anthropic, models.story llama3.1
@@ -209,8 +210,8 @@ def cmd_mic_test(args: argparse.Namespace) -> int:
     if the OS's own "default" input device turns out to be silent (a
     real, observed issue on some laptops - see
     voice_service.list_input_devices_detailed()'s docstring): pass
-    --device to try a specific index from the list this prints, and
-    `myai config set mic_device N` to make the Voice tab use it too."""
+    --device to try a specific index from the list this prints. Nexus's
+    Voice workspace always uses the Windows default input device."""
     from personalai.services import voice_service
 
     if not voice_service.is_recording_available():
@@ -226,8 +227,7 @@ def cmd_mic_test(args: argparse.Namespace) -> int:
     else:
         print("[warning] Could not list input devices - continuing anyway.")
 
-    config = config_mod.ConfigStore().load()
-    device = args.device if args.device is not None else config.mic_device
+    device = args.device
     device_note = f"device [{device}]" if device is not None else "the default microphone"
     seconds = args.seconds
     print(f"\nRecording {seconds:g}s from {device_note} - talk normally...")
@@ -249,8 +249,7 @@ def cmd_mic_test(args: argparse.Namespace) -> int:
             f"{device_note} isn't actually being picked up. Try another device from "
             "the list above with --device N, or check Windows Sound settings > "
             "Input (is the right device selected as default, is it muted, is the "
-            "volume/gain turned up). Once you find one that works, "
-            "`myai config set mic_device N` makes the Voice tab use it too.\n"
+            "volume/gain turned up).\n"
             "If a device with \"with SST\" in its name (Smart Sound Technology, "
             "common on newer Intel/Realtek laptops) is the only one that ever "
             "showed real levels but has now stopped responding entirely (even "
@@ -452,6 +451,21 @@ def cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    """Create a portable backup of configuration and conversation JSON."""
+    from personalai.core.backup import export_backup
+
+    config_mod.ensure_dirs()
+    store = config_mod.ConfigStore()
+    try:
+        saved = export_backup(Path(args.path), store.path, ConversationStore())
+    except OSError as exc:
+        print(f"[error] Could not write backup: {exc}", file=sys.stderr)
+        return 1
+    print(f"Backup saved: {saved}")
+    return 0
+
+
 def cmd_backends(args: argparse.Namespace) -> int:
     import os
 
@@ -485,6 +499,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"whisper_model       = {config.whisper_model}")
     print(f"read_replies_aloud  = {config.read_replies_aloud}")
     print(f"assistant_memory    = {config.assistant_memory or '(not set)'}")
+    print(f"global_hotkey      = {'Ctrl+Alt+N' if config.global_hotkey_enabled else '(off)'}")
     print(f"agent_workspace     = {config.agent_workspace or '(not set)'}")
     print(f"agent_mode          = {config.agent_mode}")
     print(f"forge_url           = {config.forge_url}")
@@ -556,6 +571,11 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         config.whisper_model = value
     elif key == "assistant_memory":
         config.assistant_memory = value.strip()
+    elif key == "global_hotkey_enabled":
+        if value.lower() not in ("true", "false"):
+            print("global_hotkey_enabled must be 'true' or 'false'.", file=sys.stderr)
+            return 1
+        config.global_hotkey_enabled = value.lower() == "true"
     elif key == "read_replies_aloud":
         if value.lower() not in ("true", "false"):
             print("read_replies_aloud must be 'true' or 'false'.", file=sys.stderr)
@@ -600,7 +620,7 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
               "airllm_max_new_tokens, context_char_limit, history_char_limit, "
               "mic_device, whisper_model, read_replies_aloud, agent_workspace, "
-              "assistant_memory, "
+              "assistant_memory, global_hotkey_enabled, "
               "agent_mode, forge_url, image_save_dir, models.general, models.story, "
               "models.code, models.vision, "
               "prompts.general, prompts.story, prompts.code, prompts.vision "
@@ -699,6 +719,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_models = sub.add_parser("models", help="list models Ollama has pulled")
     p_models.set_defaults(func=cmd_models)
+
+    p_export = sub.add_parser("export", help="write a ZIP backup of conversations and memory")
+    p_export.add_argument("path", help="destination ZIP path")
+    p_export.set_defaults(func=cmd_export)
 
     p_backends = sub.add_parser("backends", help="list backends and which one is active")
     p_backends.set_defaults(func=cmd_backends)

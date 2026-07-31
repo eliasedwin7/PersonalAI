@@ -40,6 +40,32 @@ class OllamaClient:
         except (urllib.error.URLError, OSError, json.JSONDecodeError):
             return []
 
+    def pull_model(self, model: str) -> None:
+        """Download an Ollama model, waiting until Ollama completes the pull."""
+        self._model_request("/api/pull", model)
+
+    def delete_model(self, model: str) -> None:
+        """Remove a locally pulled Ollama model."""
+        self._model_request("/api/delete", model)
+
+    def _model_request(self, path: str, model: str) -> None:
+        request = urllib.request.Request(
+            self.base_url + path,
+            data=json.dumps({"name": model, "model": model, "stream": False}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="DELETE" if path.endswith("/delete") else "POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=CHAT_TIMEOUT_S) as response:
+                payload = json.loads(response.read() or b"{}")
+            if payload.get("error"):
+                raise UserFacingError(f"Ollama could not update '{model}': {payload['error']}")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:500]
+            raise UserFacingError(f"Ollama could not update '{model}': {detail}") from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise OllamaUnavailable(f"Cannot reach Ollama at {self.base_url}: {exc}") from exc
+
     def chat(
         self,
         messages: list[dict],

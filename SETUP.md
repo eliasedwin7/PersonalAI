@@ -190,12 +190,29 @@ in the GUI's session list, and vice versa):
 
 A few things make it feel like a normal desktop app instead of a script
 with a window glued on: it remembers its size/position between
-launches, closing it (the X button) minimizes it to the system tray
-rather than quitting — right-click the tray icon to actually quit or to
-bring the window back — and **File → Settings…** edits the same things
+launches, minimizing sends it to the system tray, closing it (the X
+button) exits, and right-clicking the tray icon can bring the window
+back — and **File → Settings…** edits the same things
 as `myai config set` (backend, Ollama URL, per-task models — picked
 from a dropdown of whatever's actually pulled in Ollama instead of
 typed free-hand — context size limit, and the voice input model size).
+
+### Memory, models, and backups
+
+Use **Chat → Review memory** when a conversation contains preferences or
+lasting context worth carrying forward. Nexus proposes short facts, but none
+are remembered unless you check and save them in the review dialog. You can
+still edit approved memory directly in **Settings → Assistant**.
+
+**Settings → Models** lists installed Ollama models and lets you pull a model
+or remove a selected local model. **Settings → Assistant → Export backup**
+creates a ZIP containing `config.json` (including approved memory) and every
+conversation. The same backup is available from the command line with
+`myai export nexus-backup.zip`.
+
+On Windows, **Settings → Assistant** can enable `Ctrl+Alt+N` to open Nexus
+from anywhere. It is off by default and does nothing if another app already
+owns that shortcut.
 
 The first time you run `myai gui`, if you see an error mentioning
 PySide6, the GUI's one extra dependency didn't get installed — re-run

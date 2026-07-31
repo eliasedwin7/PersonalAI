@@ -56,8 +56,8 @@ management, all a window on top of the exact same
 with `myai story` shows up there too, and vice versa.
 
 The desktop workspace groups work into Chat, Voice, Images, and Agent.
-Voice includes a microphone picker, live input level, and a short device
-test so a silent or incorrectly routed Windows device is visible before
+Voice uses your Windows default microphone, with a live input level and a
+short test so a silent or incorrectly routed device is visible before
 transcription starts. Chat has session search, safe response regeneration,
 and an editable personal-memory field in Settings. Personal memory is only
 what you explicitly type; it is never inferred from conversations.
@@ -346,7 +346,7 @@ needing a real Ollama server running.
   [Choosing a backend](#choosing-a-backend).
 - ✅ **A dependable desktop app** — multi-line Enter-to-send input, a
   colored transcript, right-click session delete, a system tray icon
-  (closing the window minimizes instead of quitting), remembered window
+  (minimizing sends it to the tray while closing quits), remembered window
   size/position, and model pick-lists in Settings populated from what's
   actually pulled in Ollama.
 - ✅ **A Voice tab you actually talk to** — tap a pulsing animated orb
@@ -375,6 +375,13 @@ needing a real Ollama server running.
 - ✅ **Editable system prompts** — `myai config set prompts.<task> "..."`,
   or Settings' "System prompt (per task)" editor - override any task's
   default instructions without touching code; an empty value resets it.
+- ✅ **Approval-based persistent memory** — Chat's **Review memory** action
+  suggests durable facts from the current conversation; each item stays
+  unchecked until you approve it, then becomes part of future context.
+- ✅ **Conversation controls and data portability** — rename chats from the
+  sidebar, stop a streamed reply, pull or remove local Ollama models in
+  Settings, export a ZIP backup of conversations and approved memory, and
+  optionally open Nexus globally with `Ctrl+Alt+N` on Windows.
 - ✅ **Long-conversation history trimming** — a session's full history
   used to get resent on every single turn forever; past
   `history_char_limit` (config or Settings), the oldest turns are

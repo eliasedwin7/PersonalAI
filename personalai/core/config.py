@@ -64,10 +64,8 @@ class Config:
                                        # long-running session would otherwise resend its entire
                                        # transcript forever and eventually exceed the model's
                                        # real context window; see Conversation.as_ollama_messages
-    mic_device: int | None = None    # specific input device index (None = OS default -
-                                       # some laptops' "default" mic endpoint is silent due to
-                                       # driver routing, e.g. Realtek Smart Sound Technology;
-                                       # `myai mic-test` lists indices, Settings has a picker)
+    mic_device: int | None = None    # legacy value retained so existing config files load;
+                                       # Nexus now always uses the OS default input device
     whisper_model: str = "base.en"   # voice input model size, see services/voice_service.py
     read_replies_aloud: bool = True   # Voice tab's "speak replies aloud" checkbox default -
                                        # on by default since talking back is the point of that
@@ -87,6 +85,7 @@ class Config:
     assistant_memory: str = ""       # user-approved facts/preferences injected into every
                                        # conversation; editable in Settings, never inferred or
                                        # sent anywhere other than the configured LLM backend
+    global_hotkey_enabled: bool = False  # Windows only: Ctrl+Alt+N shows Nexus from the tray
     system_prompts: dict[str, str] = field(default_factory=dict)  # task -> override text;
                                        # a task absent here just uses chat_service.SYSTEM_PROMPTS'
                                        # built-in default, so this dict stays empty until someone

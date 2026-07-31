@@ -427,7 +427,7 @@ def test_mic_test_uses_explicit_device_flag_over_config(isolated_home, monkeypat
     assert seen["device"] == 9  # --device wins over the configured mic_device (5)
 
 
-def test_mic_test_falls_back_to_configured_device(isolated_home, monkeypatch, capsys):
+def test_mic_test_uses_system_default_even_with_legacy_config(isolated_home, monkeypatch, capsys):
     from personalai.services import voice_service
 
     cli.main(["config", "set", "mic_device", "5"])
@@ -445,7 +445,7 @@ def test_mic_test_falls_back_to_configured_device(isolated_home, monkeypatch, ca
 
     exit_code = cli.main(["mic-test"])
     assert exit_code == 0
-    assert seen["device"] == 5
+    assert seen["device"] is None
 
 
 def test_config_show_includes_agent_and_image_settings(isolated_home, capsys):

@@ -21,6 +21,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
+from personalai.core.errors import GenerationCancelled
+
 log = logging.getLogger(__name__)
 
 
@@ -28,6 +30,7 @@ class _TaskSignals(QObject):
     result = Signal(object)
     error = Signal(object)
     progress = Signal(object)
+    cancelled = Signal()
     finished = Signal()
 
 
@@ -41,20 +44,27 @@ class TaskHandle:
 
 class _Task(QRunnable):
     def __init__(self, fn: Callable[..., Any], args: tuple, kwargs: dict,
-                 signals: _TaskSignals, wants_progress: bool) -> None:
+                 signals: _TaskSignals, wants_progress: bool,
+                 cancel_event: threading.Event) -> None:
         super().__init__()
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
         self.signals = signals
         self.wants_progress = wants_progress
+        self.cancel_event = cancel_event
 
     def run(self) -> None:
         try:
             kwargs = dict(self.kwargs)
             if self.wants_progress:
-                kwargs["on_token"] = self.signals.progress.emit
+                kwargs["on_token"] = self._emit_progress
             result = self.fn(*self.args, **kwargs)
+            if self.cancel_event.is_set():
+                self._emit_safely(self.signals.cancelled)
+                return
+        except GenerationCancelled:
+            self._emit_safely(self.signals.cancelled)
         except Exception as exc:
             log.exception("Worker task failed")
             self._emit_safely(self.signals.error, exc)
@@ -62,6 +72,11 @@ class _Task(QRunnable):
             self._emit_safely(self.signals.result, result)
         finally:
             self._emit_safely(self.signals.finished)
+
+    def _emit_progress(self, token: Any) -> None:
+        if self.cancel_event.is_set():
+            raise GenerationCancelled()
+        self.signals.progress.emit(token)
 
     @staticmethod
     def _emit_safely(signal, *args) -> None:
@@ -90,6 +105,7 @@ class TaskRunner(QObject):
         on_result: Callable[[Any], None] | None = None,
         on_error: Callable[[BaseException], None] | None = None,
         on_progress: Callable[[Any], None] | None = None,
+        on_cancelled: Callable[[], None] | None = None,
         **kwargs: Any,
     ) -> TaskHandle:
         signals = _TaskSignals()
@@ -101,15 +117,18 @@ class TaskRunner(QObject):
             signals.error.connect(lambda exc: log.error("Unhandled worker error: %s", exc))
         if on_progress:
             signals.progress.connect(on_progress)
+        if on_cancelled:
+            signals.cancelled.connect(on_cancelled)
 
         self._live_signals.add(signals)
         signals.finished.connect(lambda: self._on_finished(signals))
 
         self._in_flight += 1
         self.busy_changed.emit(self._in_flight)
-        task = _Task(fn, args, kwargs, signals, on_progress is not None)
+        cancel_event = threading.Event()
+        task = _Task(fn, args, kwargs, signals, on_progress is not None, cancel_event)
         self.pool.start(task)
-        return TaskHandle(threading.Event())
+        return TaskHandle(cancel_event)
 
     def _on_finished(self, signals: _TaskSignals) -> None:
         self._live_signals.discard(signals)

@@ -17,7 +17,6 @@ from PySide6.QtCore import QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QRadialGradient
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -144,13 +143,8 @@ class VoiceTab(QWidget):
         layout.addWidget(title)
 
         device_row = QHBoxLayout()
-        device_row.addWidget(QLabel("Microphone:"))
-        self.mic_combo = QComboBox()
-        self.mic_combo.setToolTip("Choose the microphone Nexus should listen to.")
-        device_row.addWidget(self.mic_combo, stretch=1)
-        self.refresh_mics_btn = QPushButton("Refresh")
-        self.refresh_mics_btn.clicked.connect(self._refresh_microphones)
-        device_row.addWidget(self.refresh_mics_btn)
+        device_row.addWidget(QLabel("Microphone: System default"))
+        device_row.addStretch(1)
         self.test_mic_btn = QPushButton("Test microphone")
         self.test_mic_btn.setToolTip("Records a short sample and shows whether this device receives sound.")
         self.test_mic_btn.clicked.connect(self._test_microphone)
@@ -207,9 +201,6 @@ class VoiceTab(QWidget):
             self.status_label.setText("Needs the 'sounddevice' and 'faster-whisper' packages")
             self.test_mic_btn.setEnabled(False)
 
-        self._refresh_microphones()
-        self.mic_combo.currentIndexChanged.connect(self._on_microphone_changed)
-
         transcript_view.render_transcript(self.transcript, self.conversation)
 
     # ---- state machine ----
@@ -229,7 +220,7 @@ class VoiceTab(QWidget):
         # ignore clicks while transcribing/thinking/speaking - one turn at a time
 
     def _start_listening(self) -> None:
-        self._recorder = voice_service.Recorder(device=self.chat_service.config.mic_device)
+        self._recorder = voice_service.Recorder()
         try:
             self._recorder.start()
         except PersonalAIError as exc:
@@ -272,7 +263,7 @@ class VoiceTab(QWidget):
             # "it heard something but not clearly enough" (peak is
             # nonzero but this module's sensitivity needs adjusting).
             peak = recorder.peak_rms()
-            hint = " - try Settings > Microphone" if peak < 5 else ""
+            hint = " - check your system microphone settings" if peak < 5 else ""
             self.status_label.setText(
                 f"Didn't hear anything (peak input level: {peak:.0f}){hint} - "
                 "tap to try again"
@@ -328,31 +319,13 @@ class VoiceTab(QWidget):
 
     # ---- microphone diagnostics ----
 
-    def _refresh_microphones(self) -> None:
-        selected = self.chat_service.config.mic_device
-        self.mic_combo.blockSignals(True)
-        self.mic_combo.clear()
-        self.mic_combo.addItem("System default", None)
-        for index, name, is_default in voice_service.list_input_devices_detailed():
-            label = f"[{index}] {name}" + (" (default)" if is_default else "")
-            self.mic_combo.addItem(label, index)
-        chosen = self.mic_combo.findData(selected)
-        self.mic_combo.setCurrentIndex(max(chosen, 0))
-        self.mic_combo.blockSignals(False)
-
-    def _on_microphone_changed(self, _index: int) -> None:
-        self.chat_service.config.mic_device = self.mic_combo.currentData()
-        if self.config_store is not None:
-            self.config_store.save(self.chat_service.config)
-
     def _test_microphone(self) -> None:
         if self._state != "idle":
             return
-        device = self.mic_combo.currentData()
         self.test_mic_btn.setEnabled(False)
         self.status_label.setText("Testing microphone - speak normally...")
         self.task_runner.submit(
-            voice_service.mic_level_test, 3.0, device,
+            voice_service.mic_level_test, 3.0,
             on_result=self._on_microphone_tested,
             on_error=self._on_microphone_test_error,
         )
@@ -363,7 +336,7 @@ class VoiceTab(QWidget):
         self._set_level(peak)
         if peak < 80:
             self.status_label.setText(
-                "No usable microphone signal. Choose another device and test again."
+                "No usable microphone signal. Check the system default input and test again."
             )
         else:
             self.status_label.setText(f"Microphone is receiving sound (peak level: {peak:.0f}).")

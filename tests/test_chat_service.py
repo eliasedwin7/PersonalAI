@@ -126,6 +126,20 @@ def test_send_streams_tokens_when_callback_given(tmp_path):
     assert seen == ["streamed"]
 
 
+def test_suggest_memory_returns_reviewable_facts_without_persisting(tmp_path):
+    config = Config()
+    client = FakeOllamaClient(reply='["The user prefers concise answers."]')
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conversation = service.store.load_or_create("general", "general")
+    conversation.append("user", "Please keep answers concise.")
+
+    suggestions = service.suggest_memory(conversation)
+
+    assert suggestions == ["The user prefers concise answers."]
+    assert config.assistant_memory == ""
+    assert "durable" in client.calls[0][0][0]["content"]
+
+
 def test_regenerate_replaces_only_the_latest_text_reply(tmp_path):
     config = Config()
     client = FakeOllamaClient(reply="first reply")

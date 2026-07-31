@@ -15,8 +15,9 @@ from pathlib import Path
 
 from personalai.core.config import Config
 from personalai.core.conversation import Conversation, ConversationStore
-from personalai.core.errors import UserFacingError
+from personalai.core.errors import GenerationCancelled, UserFacingError
 from personalai.services import vision_service
+from personalai.services.memory_service import MEMORY_SUGGESTION_PROMPT, parse_suggestions
 from personalai.services.ollama_client import OllamaClient
 
 SYSTEM_PROMPTS = {
@@ -96,10 +97,30 @@ class ChatService:
                 conversation.task, self.config.system_prompts, self.config.assistant_memory
             ),
             char_limit=self.config.history_char_limit)
-        reply = self.client.chat(messages, model, on_token=on_token)
+        try:
+            reply = self.client.chat(messages, model, on_token=on_token)
+        except GenerationCancelled:
+            self.store.save(conversation)
+            raise
         conversation.append("assistant", reply)
         self.store.save(conversation)
         return reply
+
+    def suggest_memory(self, conversation: Conversation) -> list[str]:
+        """Ask the configured model for facts to review; never persists them itself."""
+        if not conversation.messages:
+            return []
+        transcript = "\n".join(
+            f"{message.role}: {message.content}" for message in conversation.messages[-12:]
+        )
+        response = self.client.chat(
+            [
+                {"role": "system", "content": MEMORY_SUGGESTION_PROMPT},
+                {"role": "user", "content": transcript[-12_000:]},
+            ],
+            self.config.model_for("general"),
+        )
+        return parse_suggestions(response)
 
     def send_with_image(
         self,
@@ -121,7 +142,11 @@ class ChatService:
                 conversation.task, self.config.system_prompts, self.config.assistant_memory
             ),
             char_limit=self.config.history_char_limit)
-        reply = self.client.chat(messages, model, on_token=on_token, images=[image_b64])
+        try:
+            reply = self.client.chat(messages, model, on_token=on_token, images=[image_b64])
+        except GenerationCancelled:
+            self.store.save(conversation)
+            raise
         conversation.append("assistant", reply)
         self.store.save(conversation)
         return reply

@@ -5,6 +5,7 @@ real Qt display and no real Ollama server needed."""
 from __future__ import annotations
 
 import os
+import threading
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -117,6 +118,37 @@ def test_chat_tab_send_appends_transcript_and_saves(qtbot, chat_service, task_ru
     assert len(reloaded.messages) == 2
 
 
+def test_chat_tab_stop_keeps_the_user_message_without_a_partial_reply(
+    qtbot, chat_service, task_runner
+):
+    from personalai.ui.chat_tab import ChatTab
+
+    class SlowClient:
+        def __init__(self):
+            self.release = threading.Event()
+
+        def chat(self, messages, model, on_token=None, images=None):
+            on_token("partial")
+            self.release.wait(timeout=2)
+            on_token("late")
+            return "partial late"
+
+    client = SlowClient()
+    chat_service.client = client
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.input_edit.setPlainText("please stop")
+    tab._send()
+    qtbot.waitUntil(lambda: "partial" in tab.transcript.toPlainText(), timeout=5000)
+
+    tab._stop_generation()
+    client.release.set()
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
+
+    assert [message.content for message in tab.conversation.messages] == ["please stop"]
+    assert "partial" not in tab.transcript.toPlainText()
+
+
 def test_chat_tab_regenerate_replaces_latest_reply(qtbot, chat_service, task_runner):
     from personalai.ui.chat_tab import ChatTab
 
@@ -220,6 +252,49 @@ def test_chat_tab_new_session_creates_and_lists_it(qtbot, chat_service, task_run
     assert tab.conversation.name == "my-topic"
     names = [tab.session_list.item(i).text() for i in range(tab.session_list.count())]
     assert "my-topic" in names
+
+
+def test_chat_tab_rename_session_updates_the_current_conversation(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    from PySide6.QtWidgets import QInputDialog
+
+    from personalai.ui.chat_tab import ChatTab
+
+    chat_service.store.save(chat_service.store.load_or_create("draft", "general"))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("renamed chat", True))
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._load_session("draft")
+
+    tab._rename_session("draft")
+
+    assert tab.conversation.name == "renamed_chat"
+    assert "renamed_chat" in chat_service.store.list_all()
+
+
+def test_chat_tab_memory_approval_persists_only_checked_facts(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from PySide6.QtWidgets import QDialog
+
+    from personalai.core.config import ConfigStore
+    from personalai.ui.chat_tab import ChatTab, MemoryApprovalDialog
+
+    config_store = ConfigStore(tmp_path / "config.json")
+
+    def accept_first(dialog):
+        dialog.checkboxes[0].setChecked(True)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(MemoryApprovalDialog, "exec", accept_first)
+    tab = ChatTab(chat_service, task_runner, config_store)
+    qtbot.addWidget(tab)
+
+    tab._show_memory_suggestions(["Prefers concise answers.", "Works on Nexus."])
+
+    assert chat_service.config.assistant_memory == "- Prefers concise answers."
+    assert config_store.load().assistant_memory == "- Prefers concise answers."
 
 
 def test_chat_tab_session_list_filters_by_task(qtbot, chat_service, task_runner):
@@ -466,24 +541,27 @@ def test_voice_tab_speak_toggle_persists_via_config_store(
     assert store.load().read_replies_aloud is False
 
 
-def test_voice_tab_microphone_picker_persists_selected_device(
-    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+def test_voice_tab_always_uses_system_default_microphone(
+    qtbot, chat_service, task_runner, monkeypatch
 ):
-    from personalai.core.config import ConfigStore
     from personalai.ui.voice_tab import VoiceTab
 
-    monkeypatch.setattr(
-        voice_service,
-        "list_input_devices_detailed",
-        lambda: [(9, "Working Mic", True), (14, "Other Mic", False)],
-    )
-    store = ConfigStore(tmp_path / "config.json")
-    tab = VoiceTab(chat_service, task_runner, config_store=store)
+    devices: list[int | None] = []
+
+    class FakeRecorder:
+        def __init__(self, device=None):
+            devices.append(device)
+
+        def start(self):
+            pass
+
+    chat_service.config.mic_device = 14  # legacy value must be ignored.
+    monkeypatch.setattr(voice_service, "Recorder", FakeRecorder)
+    tab = VoiceTab(chat_service, task_runner)
     qtbot.addWidget(tab)
 
-    tab.mic_combo.setCurrentIndex(2)
-    assert chat_service.config.mic_device == 14
-    assert store.load().mic_device == 14
+    tab._start_listening()
+    assert devices == [None]
 
 
 def test_voice_tab_microphone_test_explains_silent_and_live_results(qtbot, chat_service, task_runner):
@@ -634,46 +712,21 @@ def test_settings_dialog_model_combo_populated_from_ollama(qtbot, tmp_path, monk
     assert "mixtral" in items
 
 
-def test_settings_dialog_microphone_combo_populated_and_saves(
-    qtbot, tmp_path, monkeypatch
-):
-    from personalai.core.config import ConfigStore
-    from personalai.ui.settings_dialog import SettingsDialog
-
-    monkeypatch.setattr(
-        voice_service, "list_input_devices_detailed",
-        lambda: [(0, "Speakers", False), (1, "Built-in Mic", True)],
-    )
-    store = ConfigStore(tmp_path / "config.json")
-    dialog = SettingsDialog(store.load(), store)
-    qtbot.addWidget(dialog)
-
-    labels = [dialog.mic_combo.itemText(i) for i in range(dialog.mic_combo.count())]
-    assert labels == ["System default", "[0] Speakers", "[1] Built-in Mic (default)"]
-    assert dialog.mic_combo.currentIndex() == 0  # config.mic_device is None by default
-
-    dialog.mic_combo.setCurrentIndex(1)
-    dialog._save()
-
-    reloaded = ConfigStore(tmp_path / "config.json").load()
-    assert reloaded.mic_device == 0
-
-
-def test_settings_dialog_microphone_combo_preselects_configured_device(
-    qtbot, tmp_path, monkeypatch
+def test_settings_dialog_resets_legacy_microphone_selection_to_system_default(
+    qtbot, tmp_path
 ):
     from personalai.core.config import Config, ConfigStore
     from personalai.ui.settings_dialog import SettingsDialog
 
-    monkeypatch.setattr(
-        voice_service, "list_input_devices_detailed",
-        lambda: [(0, "Speakers", False), (1, "Built-in Mic", True)],
-    )
     store = ConfigStore(tmp_path / "config.json")
-    dialog = SettingsDialog(Config(mic_device=1), store)
+    dialog = SettingsDialog(Config(mic_device=14), store)
     qtbot.addWidget(dialog)
 
-    assert dialog.mic_combo.currentData() == 1
+    assert not hasattr(dialog, "mic_combo")
+    dialog._save()
+
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.mic_device is None
 
 
 def test_settings_dialog_prompt_editor_saves_an_override(qtbot, tmp_path):
@@ -1015,3 +1068,25 @@ def test_main_window_close_without_tray_accepts(qtbot, chat_service, tmp_path, m
     window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
     qtbot.addWidget(window)
     assert window.tray is None
+    window.show()
+
+    assert window.close() is True
+    qtbot.waitUntil(lambda: not window.isVisible())
+
+
+def test_main_window_minimize_hides_to_tray(qtbot, chat_service, tmp_path, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    from personalai.core.config import ConfigStore
+    from personalai.ui.main_window import MainWindow
+
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: False))
+    window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
+    qtbot.addWidget(window)
+    window.tray = object()
+    window.show()
+
+    window.setWindowState(Qt.WindowState.WindowMinimized)
+
+    qtbot.waitUntil(lambda: not window.isVisible())

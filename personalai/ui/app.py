@@ -13,8 +13,9 @@ from personalai.services.chat_service import ChatService
 
 def main(argv: list[str] | None = None) -> int:
     from PySide6.QtGui import QIcon
-    from PySide6.QtWidgets import QApplication, QSystemTrayIcon
+    from PySide6.QtWidgets import QApplication
 
+    from personalai.ui.hotkey import GlobalHotkey
     from personalai.ui.main_window import ICON_PATH, MainWindow
     from personalai.ui.theme import apply_dark_theme
 
@@ -29,17 +30,15 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication(argv if argv is not None else sys.argv[:1])
     app.setApplicationName("Nexus")
-    if QSystemTrayIcon.isSystemTrayAvailable():
-        # Only skip quit-on-close when there's actually a tray to fall back
-        # to - otherwise closing the last window would leave a windowless,
-        # unquittable background process (MainWindow mirrors this same
-        # check before deciding whether to minimize-to-tray on close).
-        app.setQuitOnLastWindowClosed(False)
     if ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(ICON_PATH)))
     apply_dark_theme(app)
 
     window = MainWindow(chat_service, config_store)
+    hotkey = GlobalHotkey(app, window._show_and_raise)
+    hotkey.configure(config.global_hotkey_enabled)
+    window.set_hotkey_manager(hotkey)
+    app.aboutToQuit.connect(hotkey.close)
     window.show()
     return app.exec()
 

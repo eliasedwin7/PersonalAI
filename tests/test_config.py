@@ -23,6 +23,7 @@ def test_round_trip(tmp_path):
     config.models["story"] = "mixtral"
     config.context_char_limit = 5000
     config.assistant_memory = "Prefers Australian English."
+    config.global_hotkey_enabled = True
     store.save(config)
 
     reloaded = ConfigStore(tmp_path / "config.json").load()
@@ -30,6 +31,7 @@ def test_round_trip(tmp_path):
     assert reloaded.model_for("story") == "mixtral"
     assert reloaded.context_char_limit == 5000
     assert reloaded.assistant_memory == "Prefers Australian English."
+    assert reloaded.global_hotkey_enabled is True
     # untouched tasks keep their defaults after a partial models dict is saved
     assert reloaded.model_for("code") == DEFAULT_MODELS["code"]
 

@@ -103,6 +103,19 @@ def test_list_all_and_delete(tmp_path):
     assert store.list_all() == ["beta"]
 
 
+def test_rename_preserves_messages_and_removes_old_file(tmp_path):
+    store = ConversationStore(tmp_path)
+    conversation = store.load_or_create("draft", "story")
+    conversation.append("user", "Open with a storm.")
+    store.save(conversation)
+
+    renamed = store.rename("draft", "storm draft")
+
+    assert renamed.name == "storm_draft"
+    assert store.list_all() == ["storm_draft"]
+    assert store.load_or_create("storm_draft", "story").messages[0].content == "Open with a storm."
+
+
 def test_corrupt_conversation_file_raises_user_facing(tmp_path):
     store = ConversationStore(tmp_path)
     (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")

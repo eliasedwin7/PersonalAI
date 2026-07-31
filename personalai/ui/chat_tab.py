@@ -16,7 +16,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -36,12 +39,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from personalai.core.config import ConfigStore
 from personalai.core.conversation import Conversation
 from personalai.core.errors import PersonalAIError
 from personalai.services import context_service
 from personalai.services.chat_service import TEXT_TASKS, ChatService
+from personalai.services.memory_service import merge_approved_memory
 from personalai.ui import transcript_view
-from personalai.ui.workers import TaskRunner
+from personalai.ui.workers import TaskHandle, TaskRunner
 
 INPUT_MAX_HEIGHT = 90
 IMAGE_PREVIEW_HEIGHT = 56
@@ -63,15 +68,45 @@ class ChatInputEdit(QPlainTextEdit):
         super().keyPressEvent(event)
 
 
+class MemoryApprovalDialog(QDialog):
+    """A review screen where each proposed memory starts unapproved."""
+
+    def __init__(self, suggestions: list[str], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Review memory")
+        self.setMinimumWidth(460)
+        layout = QVBoxLayout(self)
+        note = QLabel("Select only the facts Nexus should remember in future chats.")
+        note.setWordWrap(True)
+        note.setObjectName("mutedLabel")
+        layout.addWidget(note)
+        self.checkboxes: list[QCheckBox] = []
+        for suggestion in suggestions:
+            checkbox = QCheckBox(suggestion)
+            layout.addWidget(checkbox)
+            self.checkboxes.append(checkbox)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def approved(self) -> list[str]:
+        return [box.text() for box in self.checkboxes if box.isChecked()]
+
+
 class ChatTab(QWidget):
-    def __init__(self, chat_service: ChatService, task_runner: TaskRunner) -> None:
+    def __init__(self, chat_service: ChatService, task_runner: TaskRunner,
+                 config_store: ConfigStore | None = None) -> None:
         super().__init__()
         self.chat_service = chat_service
         self.task_runner = task_runner
+        self.config_store = config_store or ConfigStore()
         self.conversation: Conversation | None = None
         self.context_paths: list[str] = []
         self.attached_image_path: Path | None = None
         self._sending = False
+        self._send_task: TaskHandle | None = None
+        self._memory_suggesting = False
         self.setAcceptDrops(True)
 
         outer = QHBoxLayout(self)
@@ -127,6 +162,10 @@ class ChatTab(QWidget):
         self.model_label = QLabel()
         self.model_label.setObjectName("mutedLabel")
         top_row.addWidget(self.model_label)
+        self.memory_btn = QPushButton("Review memory")
+        self.memory_btn.setToolTip("Suggest lasting facts from this chat for your approval.")
+        self.memory_btn.clicked.connect(self._review_memory)
+        top_row.addWidget(self.memory_btn)
         self.attach_btn = QToolButton()
         self.attach_btn.setText("Attach")
         self.attach_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -196,6 +235,11 @@ class ChatTab(QWidget):
         self.regenerate_btn.setToolTip("Generate a new response to the most recent text message.")
         self.regenerate_btn.clicked.connect(self._regenerate)
         input_row.addWidget(self.regenerate_btn)
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setToolTip("Stop the reply currently being generated.")
+        self.stop_btn.clicked.connect(self._stop_generation)
+        self.stop_btn.setVisible(False)
+        input_row.addWidget(self.stop_btn)
         right_layout.addLayout(input_row)
 
         splitter.addWidget(right)
@@ -236,10 +280,27 @@ class ChatTab(QWidget):
         if item is None:
             return
         menu = QMenu(self)
+        rename_action = menu.addAction("Rename session")
         delete_action = menu.addAction("Delete session")
         action = menu.exec(self.session_list.mapToGlobal(pos))
-        if action is delete_action:
+        if action is rename_action:
+            self._rename_session(item.text())
+        elif action is delete_action:
             self._delete_session(item.text())
+
+    def _rename_session(self, name: str) -> None:
+        new_name, ok = QInputDialog.getText(self, "Rename session", "New session name:", text=name)
+        if not ok or not new_name.strip():
+            return
+        try:
+            conversation = self.chat_service.store.rename(name, new_name.strip())
+        except PersonalAIError as exc:
+            QMessageBox.warning(self, "Rename session", str(exc))
+            return
+        if self.conversation is not None and self.conversation.name == name:
+            self.conversation = conversation
+        self._reload_sessions()
+        self._render_transcript()
 
     def _delete_session(self, name: str) -> None:
         reply = QMessageBox.question(
@@ -294,6 +355,7 @@ class ChatTab(QWidget):
         self.content_stack.setCurrentWidget(self.empty_state if is_empty else self.transcript)
         self._update_model_label()
         self.regenerate_btn.setEnabled(self._can_regenerate())
+        self.memory_btn.setEnabled(not self._sending and not self._memory_suggesting and not is_empty)
 
     def _update_model_label(self) -> None:
         model = self.chat_service.config.model_for(self.task_combo.currentText())
@@ -438,20 +500,25 @@ class ChatTab(QWidget):
         self._sending = True
         self.send_btn.setEnabled(False)
         self.regenerate_btn.setEnabled(False)
+        self.memory_btn.setEnabled(False)
+        self.stop_btn.setVisible(True)
+        self.stop_btn.setEnabled(True)
 
         if image_path is None:
-            self.task_runner.submit(
+            self._send_task = self.task_runner.submit(
                 self.chat_service.send, self.conversation, message,
                 on_progress=self._on_token,
                 on_result=self._on_done,
                 on_error=self._on_error,
+                on_cancelled=self._on_cancelled,
             )
         else:
-            self.task_runner.submit(
+            self._send_task = self.task_runner.submit(
                 self.chat_service.send_with_image, self.conversation, message, image_path,
                 on_progress=self._on_token,
                 on_result=self._on_done,
                 on_error=self._on_error,
+                on_cancelled=self._on_cancelled,
             )
 
     def _on_token(self, token: str) -> None:
@@ -464,14 +531,42 @@ class ChatTab(QWidget):
         # blocks, bold, lists, ...) now that the full message is known.
         self._render_transcript()
         self._sending = False
+        self._send_task = None
         self.send_btn.setEnabled(True)
+        self.stop_btn.setVisible(False)
+        self.memory_btn.setEnabled(not self._memory_suggesting)
         self._reload_sessions()
 
     def _on_error(self, exc: BaseException) -> None:
         transcript_view.append_body(self.transcript, f"\n[error] {exc}\n\n")
         self._sending = False
+        self._send_task = None
         self.send_btn.setEnabled(True)
+        self.stop_btn.setVisible(False)
         self.regenerate_btn.setEnabled(self._can_regenerate())
+        self.memory_btn.setEnabled(not self._memory_suggesting and self.conversation is not None)
+
+    def _on_cancelled(self) -> None:
+        if (
+            self.conversation is not None
+            and self.conversation.messages
+            and self.conversation.messages[-1].role == "assistant"
+        ):
+            # Cancellation normally stops before ChatService appends a reply.
+            # If it arrived just after a response completed, remove that reply
+            # so the saved conversation reflects the user's Stop action.
+            self.conversation.messages.pop()
+            self.chat_service.store.save(self.conversation)
+        self._sending = False
+        self._send_task = None
+        self.stop_btn.setVisible(False)
+        self.send_btn.setEnabled(True)
+        self._render_transcript()
+
+    def _stop_generation(self) -> None:
+        if self._send_task is not None:
+            self.stop_btn.setEnabled(False)
+            self._send_task.cancel()
 
     def _regenerate(self) -> None:
         if not self._can_regenerate() or self.conversation is None:
@@ -487,9 +582,47 @@ class ChatTab(QWidget):
         self._sending = True
         self.send_btn.setEnabled(False)
         self.regenerate_btn.setEnabled(False)
-        self.task_runner.submit(
+        self.memory_btn.setEnabled(False)
+        self.stop_btn.setVisible(True)
+        self.stop_btn.setEnabled(True)
+        self._send_task = self.task_runner.submit(
             self.chat_service.regenerate, self.conversation,
             on_progress=self._on_token,
             on_result=self._on_done,
             on_error=self._on_error,
+            on_cancelled=self._on_cancelled,
         )
+
+    # ---- persistent memory ----
+
+    def _review_memory(self) -> None:
+        if self.conversation is None or self._memory_suggesting:
+            return
+        self._memory_suggesting = True
+        self.memory_btn.setEnabled(False)
+        self.task_runner.submit(
+            self.chat_service.suggest_memory, self.conversation,
+            on_result=self._show_memory_suggestions,
+            on_error=self._on_memory_suggestion_error,
+        )
+
+    def _show_memory_suggestions(self, suggestions: list[str]) -> None:
+        self._memory_suggesting = False
+        self.memory_btn.setEnabled(not self._sending)
+        if not suggestions:
+            QMessageBox.information(self, "Review memory", "No lasting facts were suggested from this chat.")
+            return
+        dialog = MemoryApprovalDialog(suggestions, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        approved = dialog.approved()
+        if not approved:
+            return
+        config = self.chat_service.config
+        config.assistant_memory = merge_approved_memory(config.assistant_memory, approved)
+        self.config_store.save(config)
+
+    def _on_memory_suggestion_error(self, exc: BaseException) -> None:
+        self._memory_suggesting = False
+        self.memory_btn.setEnabled(not self._sending and self.conversation is not None)
+        QMessageBox.warning(self, "Review memory", str(exc))

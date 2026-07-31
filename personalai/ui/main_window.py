@@ -3,11 +3,8 @@ over the same ChatService/ConversationStore the CLI uses - a session
 started with `myai story` is visible here too, and vice versa.
 
 Meant to be a dependable everyday app, not just a thin CLI wrapper:
-window size/position is remembered across restarts, and closing the
-window (the X button) minimizes to the system tray instead of quitting,
-so PersonalAI can just stay running and accessible - the terminal
-remains the tool of choice for one-shot/automated use, not for the
-day-to-day conversation.
+window size/position is remembered across restarts, minimizing the
+window moves it to the system tray, and closing it exits cleanly.
 """
 
 from __future__ import annotations
@@ -15,7 +12,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
@@ -52,6 +49,7 @@ class MainWindow(QMainWindow):
         self.chat_service = chat_service
         self.config_store = config_store
         self.task_runner = TaskRunner(self)
+        self.hotkey_manager = None
 
         self.setWindowTitle("Nexus")
         if ICON_PATH.exists():
@@ -105,7 +103,7 @@ class MainWindow(QMainWindow):
         shell_layout.addWidget(app_bar)
 
         self.pages = QStackedWidget()
-        self.chat_tab = ChatTab(self.chat_service, self.task_runner)
+        self.chat_tab = ChatTab(self.chat_service, self.task_runner, self.config_store)
         self.voice_tab = VoiceTab(self.chat_service, self.task_runner, self.config_store)
         self.images_page = ImagesPage(self.chat_service, self.task_runner)
         self.caption_tab = self.images_page.caption_tab
@@ -139,7 +137,9 @@ class MainWindow(QMainWindow):
         self.config_store.save(self.chat_service.config)
 
     def _open_settings(self) -> None:
-        dialog = SettingsDialog(self.chat_service.config, self.config_store, self)
+        dialog = SettingsDialog(
+            self.chat_service.config, self.config_store, self, self.task_runner
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # Config is mutated in place by the dialog, but the ChatService's
             # client object was already built from the OLD settings - rebuild
@@ -147,13 +147,17 @@ class MainWindow(QMainWindow):
             # immediately instead of needing an app restart.
             self.chat_service.client = build_llm_client(self.chat_service.config)
             self.chat_tab._update_model_label()
-            self.voice_tab._refresh_microphones()
             self._check_health()
             # ImageTab keeps its own ForgeClient (independent of the
             # chat backend) - rebuild it too so a changed Forge URL
             # takes effect immediately, same reasoning as the line above.
             self.image_tab.client = build_forge_client(self.chat_service.config)
             self.image_tab._check_health()
+            if self.hotkey_manager is not None:
+                self.hotkey_manager.configure(self.chat_service.config.global_hotkey_enabled)
+
+    def set_hotkey_manager(self, manager) -> None:
+        self.hotkey_manager = manager
 
     def _check_health(self) -> None:
         self.task_runner.submit(self.chat_service.client.is_available,
@@ -211,14 +215,18 @@ class MainWindow(QMainWindow):
         if app is not None:
             app.quit()
 
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if (
+            event.type() == QEvent.Type.WindowStateChange
+            and self.isMinimized()
+            and self.tray is not None
+        ):
+            # Queue this until Qt has completed the minimize transition.
+            # Hiding keeps Nexus accessible from the tray without a taskbar
+            # entry, while preserving a normal close button for exit.
+            QTimer.singleShot(0, self.hide)
+
     def closeEvent(self, event) -> None:
         self._save_geometry()
-        if self.tray is not None:
-            event.ignore()
-            self.hide()
-            self.tray.showMessage(
-                "Nexus", "Still running in the tray - right-click the "
-                "icon to quit.", QSystemTrayIcon.MessageIcon.Information, 2000,
-            )
-        else:
-            event.accept()
+        event.accept()

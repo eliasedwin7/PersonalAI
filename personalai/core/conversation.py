@@ -128,5 +128,20 @@ class ConversationStore:
             return True
         return False
 
+    def rename(self, old_name: str, new_name: str) -> Conversation:
+        """Rename one persisted conversation without changing its history."""
+        old_path = self._path(old_name)
+        new_path = self._path(new_name)
+        if not old_path.exists():
+            raise UserFacingError(f"No conversation named '{old_name}'.")
+        if new_path.exists() and new_path != old_path:
+            raise UserFacingError(f"A conversation named '{new_name}' already exists.")
+        conversation = self.load_or_create(old_name, "general")
+        conversation.name = safe_session_name(new_name)
+        self.save(conversation)
+        if new_path != old_path:
+            old_path.unlink()
+        return conversation
+
     def list_all(self) -> list[str]:
         return sorted(p.stem for p in self.directory.glob("*.json"))

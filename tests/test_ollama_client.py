@@ -44,6 +44,29 @@ def test_list_models_empty_on_error(monkeypatch):
     assert client.list_models() == []
 
 
+def test_pull_and_delete_model_use_ollama_model_endpoints(monkeypatch):
+    requests = []
+
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"{}"
+
+    def fake_urlopen(request, timeout=None):
+        requests.append((request.full_url, request.get_method(), json.loads(request.data)))
+        return FakeResp()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    client = OllamaClient("http://127.0.0.1:11434")
+    client.pull_model("llama3.1")
+    client.delete_model("llama3.1")
+
+    assert requests == [
+        ("http://127.0.0.1:11434/api/pull", "POST", {"name": "llama3.1", "model": "llama3.1", "stream": False}),
+        ("http://127.0.0.1:11434/api/delete", "DELETE", {"name": "llama3.1", "model": "llama3.1", "stream": False}),
+    ]
+
+
 def test_chat_non_streaming(monkeypatch):
     class FakeResp:
         def __enter__(self): return self
