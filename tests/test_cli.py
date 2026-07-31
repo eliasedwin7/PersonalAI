@@ -172,6 +172,9 @@ def test_config_show_includes_voice_settings(isolated_home, capsys):
     assert "mic_device          = default" in out
     assert "whisper_model       = base.en" in out
     assert "read_replies_aloud  = True" in out
+    assert "voice_continuous_conversation = False" in out
+    assert "voice_tts_rate     = 165" in out
+    assert "voice_tts_volume   = 0.92" in out
 
 
 def test_config_set_assistant_memory(isolated_home, capsys):
@@ -231,6 +234,20 @@ def test_config_set_read_replies_aloud_rejects_invalid(isolated_home, capsys):
     exit_code = cli.main(["config", "set", "read_replies_aloud", "maybe"])
     assert exit_code == 1
     assert "must be" in capsys.readouterr().err
+
+
+def test_config_set_conversational_voice_options(isolated_home, capsys):
+    cli.main(["config", "set", "voice_continuous_conversation", "true"])
+    cli.main(["config", "set", "voice_tts_rate", "150"])
+    cli.main(["config", "set", "voice_tts_volume", "0.8"])
+    capsys.readouterr()
+
+    cli.main(["config", "show"])
+    out = capsys.readouterr().out
+
+    assert "voice_continuous_conversation = True" in out
+    assert "voice_tts_rate     = 150" in out
+    assert "voice_tts_volume   = 0.8" in out
 
 
 def test_backends_command_lists_all_three_and_marks_active(isolated_home, capsys):

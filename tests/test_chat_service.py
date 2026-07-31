@@ -143,6 +143,19 @@ def test_send_includes_system_prompt_matching_task(tmp_path):
     assert messages[0] == {"role": "system", "content": SYSTEM_PROMPTS["story"]}
 
 
+def test_send_voice_uses_natural_spoken_reply_prompt(tmp_path):
+    config = Config(models={"general": "normal", "story": "story", "code": "code"})
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conversation = service.store.load_or_create("voice", "general")
+
+    service.send_voice(conversation, "talk to me")
+
+    messages, _model = client.calls[0]
+    assert "speaking with the user out loud" in messages[0]["content"]
+    assert "Avoid markdown" in messages[0]["content"]
+
+
 def test_send_trims_history_to_configured_char_limit(tmp_path):
     config = Config(history_char_limit=250)
     client = FakeOllamaClient()

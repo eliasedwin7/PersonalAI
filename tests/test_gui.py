@@ -440,7 +440,7 @@ def test_voice_tab_full_turn_transcribes_replies_and_speaks(
     monkeypatch.setattr(voice_service, "Recorder", FakeRecorder)
     monkeypatch.setattr(voice_service, "transcribe",
                         lambda wav_bytes, model_size: "what time is it")
-    monkeypatch.setattr(voice_service, "speak", lambda text: spoken.append(text))
+    monkeypatch.setattr(voice_service, "speak", lambda text, *args: spoken.append(text))
 
     from personalai.ui.voice_tab import VoiceTab
 
@@ -460,9 +460,21 @@ def test_voice_tab_full_turn_transcribes_replies_and_speaks(
 def test_voice_tab_hi_nexus_greeting_is_spoken_without_model_call(
     qtbot, chat_service, task_runner, monkeypatch
 ):
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
     monkeypatch.setattr(voice_service, "is_speech_available", lambda: True)
     spoken = []
-    monkeypatch.setattr(voice_service, "speak", lambda text: spoken.append(text))
+    started = []
+
+    class FakeRecorder:
+        def __init__(self_inner, device=None):
+            pass
+
+        def start(self_inner):
+            started.append(True)
+
+    monkeypatch.setattr(voice_service, "Recorder", FakeRecorder)
+    monkeypatch.setattr(voice_service, "speak", lambda text, *args: spoken.append(text))
 
     from personalai.ui.voice_tab import VoiceTab
 
@@ -471,10 +483,46 @@ def test_voice_tab_hi_nexus_greeting_is_spoken_without_model_call(
 
     tab._on_transcribed("Hi Nexus")
 
-    qtbot.waitUntil(lambda: tab._state == "idle", timeout=5000)
+    qtbot.waitUntil(lambda: tab._state == "listening", timeout=5000)
     assert "Hi Nexus" in tab.transcript.toPlainText()
     assert "What would you like to work on" in tab.transcript.toPlainText()
     assert spoken == ["Hi. I'm here. What would you like to work on?"]
+    assert started == [True]
+    assert chat_service.client.calls == []
+
+
+def test_voice_tab_goodbye_nexus_pauses_conversation_mode(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_speech_available", lambda: True)
+    spoken = []
+    started = []
+
+    class FakeRecorder:
+        def __init__(self_inner, device=None):
+            pass
+
+        def start(self_inner):
+            started.append(True)
+
+    monkeypatch.setattr(voice_service, "Recorder", FakeRecorder)
+    monkeypatch.setattr(voice_service, "speak", lambda text, *args: spoken.append(text))
+
+    from personalai.ui.voice_tab import VoiceTab
+
+    tab = VoiceTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._conversation_mode_active = True
+
+    tab._on_transcribed("Goodbye Nexus")
+
+    qtbot.waitUntil(lambda: tab._state == "idle", timeout=5000)
+    qtbot.wait(350)
+    assert "Okay. I'll pause here." in tab.transcript.toPlainText()
+    assert spoken == ["Okay. I'll pause here."]
+    assert started == []
     assert chat_service.client.calls == []
 
 
@@ -852,11 +900,17 @@ def test_settings_dialog_voice_command_settings_save(qtbot, tmp_path):
 
     dialog.voice_commands_check.setChecked(False)
     dialog.wake_word_edit.setText("friday")
+    dialog.continuous_voice_check.setChecked(True)
+    dialog.tts_rate_spin.setValue(150)
+    dialog.tts_volume_spin.setValue(80)
     dialog._save()
 
     reloaded = ConfigStore(tmp_path / "config.json").load()
     assert reloaded.voice_commands_enabled is False
     assert reloaded.voice_wake_word == "friday"
+    assert reloaded.voice_continuous_conversation is True
+    assert reloaded.voice_tts_rate == 150
+    assert reloaded.voice_tts_volume == 0.8
 
 
 def test_settings_dialog_never_exposes_an_api_key_field(qtbot, tmp_path):

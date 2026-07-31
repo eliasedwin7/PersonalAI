@@ -1,12 +1,12 @@
 """Voice tab: a dedicated "talk to it" assistant, separate from the
 Chat tab (which stays plain typing - see ChatTab's module docstring).
 
-Tap the orb to start talking, tap again to stop - it transcribes
-locally (faster-whisper), sends your words to the same ChatService the
-other tabs use, streams the reply into the log, and speaks it back
-(pyttsx3) before returning to idle, ready for the next turn. The orb's
-color/pulse animates through idle -> listening -> thinking -> speaking
-so it reads as "alive" rather than a frozen button.
+Tap the orb to start talking, then say "Hi Nexus" to open a natural
+back-and-forth. Nexus transcribes locally (faster-whisper), sends your
+words to the same ChatService the other tabs use, streams the reply into
+the log, and speaks it back (pyttsx3). The orb's color/pulse animates
+through idle -> listening -> thinking -> speaking so it reads as "alive"
+rather than a frozen button.
 """
 
 from __future__ import annotations
@@ -132,6 +132,7 @@ class VoiceTab(QWidget):
             VOICE_SESSION, VOICE_TASK
         )
         self._state = "idle"
+        self._conversation_mode_active = False
         self._recorder: voice_service.Recorder | None = None
         self._silence_timer = QTimer(self)
         self._silence_timer.setInterval(SILENCE_POLL_MS)
@@ -190,6 +191,11 @@ class VoiceTab(QWidget):
             self.speak_check.setEnabled(False)
             self.speak_check.setToolTip("Needs the 'pyttsx3' package: pip install pyttsx3")
         options_row.addStretch(1)
+        self.continue_check = QCheckBox("Keep listening")
+        self.continue_check.setChecked(chat_service.config.voice_continuous_conversation)
+        self.continue_check.setToolTip("After Nexus replies, start listening again for a natural back-and-forth.")
+        self.continue_check.toggled.connect(self._on_continue_toggled)
+        options_row.addWidget(self.continue_check)
         options_row.addWidget(self.speak_check)
         layout.addLayout(options_row)
 
@@ -299,22 +305,22 @@ class VoiceTab(QWidget):
             transcript_view.append_role_label(self.transcript, "assistant")
             transcript_view.append_body(self.transcript, command.response + "\n\n")
             self.command_requested.emit(command)
+            if command.action == "voice_greeting":
+                self._conversation_mode_active = True
+            elif command.action == "voice_sleep":
+                self._conversation_mode_active = False
             if self.speak_check.isChecked() and voice_service.is_speech_available():
                 self._set_state("speaking")
-                self.task_runner.submit(
-                    voice_service.speak, command.response,
-                    on_result=lambda _r=None: self._set_state("idle"),
-                    on_error=self._on_error,
-                )
+                self._speak(command.response)
             else:
-                self._set_state("idle")
+                self._finish_voice_turn()
             return
         transcript_view.append_role_label(self.transcript, "user")
         transcript_view.append_body(self.transcript, text + "\n\n")
         transcript_view.append_role_label(self.transcript, "assistant")
         self._set_state("thinking")
         self.task_runner.submit(
-            self.chat_service.send, self.conversation, text,
+            self.chat_service.send_voice, self.conversation, text,
             on_progress=lambda token: transcript_view.append_body(self.transcript, token),
             on_result=self._on_reply,
             on_error=self._on_error,
@@ -328,13 +334,9 @@ class VoiceTab(QWidget):
         transcript_view.render_transcript(self.transcript, self.conversation)
         if self.speak_check.isChecked() and voice_service.is_speech_available():
             self._set_state("speaking")
-            self.task_runner.submit(
-                voice_service.speak, reply,
-                on_result=lambda _r=None: self._set_state("idle"),
-                on_error=self._on_error,
-            )
+            self._speak(reply)
         else:
-            self._set_state("idle")
+            self._finish_voice_turn()
 
     def _on_error(self, exc: BaseException) -> None:
         self._set_state("idle")
@@ -384,6 +386,30 @@ class VoiceTab(QWidget):
         self.chat_service.config.read_replies_aloud = checked
         if self.config_store is not None:
             self.config_store.save(self.chat_service.config)
+
+    def _on_continue_toggled(self, checked: bool) -> None:
+        self.chat_service.config.voice_continuous_conversation = checked
+        if self.config_store is not None:
+            self.config_store.save(self.chat_service.config)
+
+    def _speak(self, text: str) -> None:
+        self.task_runner.submit(
+            voice_service.speak,
+            text,
+            self.chat_service.config.voice_tts_rate,
+            self.chat_service.config.voice_tts_volume,
+            on_result=lambda _r=None: self._finish_voice_turn(),
+            on_error=self._on_error,
+        )
+
+    def _finish_voice_turn(self) -> None:
+        self._set_state("idle")
+        if self.continue_check.isChecked() or self._conversation_mode_active:
+            QTimer.singleShot(250, self._start_listening_if_idle)
+
+    def _start_listening_if_idle(self) -> None:
+        if self._state == "idle" and self.orb.isEnabled():
+            self._start_listening()
 
     def show_command_response(self, text: str) -> None:
         self.status_label.setText(text)

@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import tempfile
 import time
 import wave
@@ -285,11 +286,11 @@ def transcribe(wav_bytes: bytes, model_size: str = "base.en") -> str:
 _tts_engine = None
 
 
-def speak(text: str) -> None:
+def speak(text: str, rate: int = 165, volume: float = 0.92) -> None:
     """Read text aloud via the system's TTS voice. Blocks until speech
     finishes - callers running this from a GUI should submit it to a
     background task so the window doesn't freeze while it talks."""
-    text = text.strip()
+    text = _spoken_text(text)
     if not text:
         return
     try:
@@ -302,8 +303,47 @@ def speak(text: str) -> None:
     global _tts_engine
     if _tts_engine is None:
         _tts_engine = pyttsx3.init()
+        _configure_tts_engine(_tts_engine, rate, volume)
+    else:
+        _configure_tts_engine(_tts_engine, rate, volume)
     _tts_engine.say(text)
     _tts_engine.runAndWait()
+
+
+def _configure_tts_engine(engine, rate: int, volume: float) -> None:
+    try:
+        engine.setProperty("rate", max(120, min(220, int(rate))))
+        engine.setProperty("volume", max(0.0, min(1.0, float(volume))))
+    except (AttributeError, RuntimeError, ValueError):
+        return
+    try:
+        voices = engine.getProperty("voices") or []
+    except (AttributeError, RuntimeError):
+        return
+    preferred = _preferred_voice_id(voices)
+    if preferred:
+        try:
+            engine.setProperty("voice", preferred)
+        except (AttributeError, RuntimeError):
+            pass
+
+
+def _preferred_voice_id(voices) -> str:
+    for needle in ("zira", "aria", "jenny", "natural", "english"):
+        for voice in voices:
+            name = getattr(voice, "name", "").casefold()
+            voice_id = getattr(voice, "id", "")
+            if needle in name or needle in str(voice_id).casefold():
+                return voice_id
+    return getattr(voices[0], "id", "") if voices else ""
+
+
+def _spoken_text(text: str) -> str:
+    clean = re.sub(r"```.*?```", "I can show you the code in chat.", text, flags=re.DOTALL)
+    clean = re.sub(r"`([^`]+)`", r"\1", clean)
+    clean = re.sub(r"[*_#>-]+", " ", clean)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean
 
 
 MIC_TEST_WINDOW_S = 0.25

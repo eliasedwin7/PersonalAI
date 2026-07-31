@@ -149,6 +149,9 @@ class Config:
     setup_completed: bool = False  # first-run setup wizard has applied a hardware profile
     voice_commands_enabled: bool = True  # local "Nexus open settings" style commands
     voice_wake_word: str = "nexus"
+    voice_continuous_conversation: bool = False  # optional hands-free back-and-forth in Voice
+    voice_tts_rate: int = 165  # pyttsx3 words/minute; slower than Windows default feels less robotic
+    voice_tts_volume: float = 0.92
     system_prompts: dict[str, str] = field(default_factory=dict)  # task -> override text;
                                        # a task absent here just uses chat_service.SYSTEM_PROMPTS'
                                        # built-in default, so this dict stays empty until someone

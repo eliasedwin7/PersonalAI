@@ -242,6 +242,21 @@ class SettingsDialog(QDialog):
         self.wake_word_edit = QLineEdit(config.voice_wake_word)
         self.wake_word_edit.setToolTip("Word Nexus listens for at the start of local voice commands.")
         form.addRow("Wake word:", self.wake_word_edit)
+
+        self.continuous_voice_check = QCheckBox("Keep listening after spoken replies")
+        self.continuous_voice_check.setChecked(config.voice_continuous_conversation)
+        form.addRow("Conversation mode:", self.continuous_voice_check)
+
+        self.tts_rate_spin = QSpinBox()
+        self.tts_rate_spin.setRange(120, 220)
+        self.tts_rate_spin.setValue(config.voice_tts_rate)
+        self.tts_rate_spin.setToolTip("Lower values sound calmer; Windows default is often faster.")
+        form.addRow("Speech speed:", self.tts_rate_spin)
+
+        self.tts_volume_spin = QSpinBox()
+        self.tts_volume_spin.setRange(20, 100)
+        self.tts_volume_spin.setValue(round(config.voice_tts_volume * 100))
+        form.addRow("Speech volume:", self.tts_volume_spin)
         self.tabs.addTab(page, "Voice")
 
     def _build_assistant_tab(self, config: Config) -> None:
@@ -556,6 +571,9 @@ class SettingsDialog(QDialog):
         config.whisper_model = self.whisper_combo.currentText()
         config.voice_commands_enabled = self.voice_commands_check.isChecked()
         config.voice_wake_word = self.wake_word_edit.text().strip() or "nexus"
+        config.voice_continuous_conversation = self.continuous_voice_check.isChecked()
+        config.voice_tts_rate = self.tts_rate_spin.value()
+        config.voice_tts_volume = self.tts_volume_spin.value() / 100
         config.assistant_memory = self.memory_edit.toPlainText().strip()
         config.memory_entries = self._memory_entries
         config.apply_local_profile(self.profile_combo.currentData())

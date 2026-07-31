@@ -497,7 +497,19 @@ class _FakeTtsEngine:
     def __init__(self):
         self.said: list[str] = []
         self.ran = 0
+        self.properties = {}
         _FakeTtsEngine.instances.append(self)
+
+    def setProperty(self, key, value):
+        self.properties[key] = value
+
+    def getProperty(self, key):
+        if key == "voices":
+            return [
+                types.SimpleNamespace(id="voice-david", name="Microsoft David"),
+                types.SimpleNamespace(id="voice-zira", name="Microsoft Zira"),
+            ]
+        return self.properties.get(key)
 
     def say(self, text):
         self.said.append(text)
@@ -520,6 +532,18 @@ def test_speak_says_and_runs(monkeypatch):
     engine = _FakeTtsEngine.instances[-1]
     assert engine.said == ["hello there"]
     assert engine.ran == 1
+    assert engine.properties["rate"] == 165
+    assert engine.properties["volume"] == 0.92
+    assert engine.properties["voice"] == "voice-zira"
+
+
+def test_speak_strips_markdown_and_code_for_spoken_output(monkeypatch):
+    _install_fake_pyttsx3(monkeypatch)
+
+    voice_service.speak("Here is `x`: ```python\nprint(x)\n```")
+
+    engine = _FakeTtsEngine.instances[-1]
+    assert engine.said == ["Here is x: I can show you the code in chat."]
 
 
 def test_speak_reuses_engine_across_calls(monkeypatch):

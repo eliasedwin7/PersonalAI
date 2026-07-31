@@ -68,6 +68,7 @@ def system_prompt_for(
     assistant_memory: str = "",
     knowledge_context: str = "",
     deep_thinking: bool = False,
+    voice_mode: bool = False,
 ) -> str:
     """`overrides` is Config.system_prompts - a user-edited prompt for a
     task takes priority over the built-in default; a task absent (or
@@ -80,6 +81,13 @@ def system_prompt_for(
         prompt += f"\n\nRelevant local knowledge (use it as evidence and name the source when useful):\n{knowledge_context}"
     if deep_thinking:
         prompt += "\n\nWork through the request carefully before answering. Check assumptions and give a clear final answer without exposing private scratch work."
+    if voice_mode:
+        prompt += (
+            "\n\nYou are speaking with the user out loud. Sound natural, warm, and human. "
+            "Use short conversational sentences, contractions, and a calm tone. Avoid markdown, "
+            "tables, long lists, code fences, or robotic phrasing unless the user explicitly asks. "
+            "Answer directly, then ask a small helpful follow-up when it would keep the conversation flowing."
+        )
     return prompt
 
 
@@ -134,6 +142,33 @@ class ChatService:
                 self._knowledge_context(user_message), deep_thinking,
             ),
             char_limit=self.config.history_char_limit)
+        try:
+            reply = self.client.chat(messages, model, on_token=on_token)
+        except GenerationCancelled:
+            self.store.save(conversation)
+            raise
+        conversation.append("assistant", reply)
+        self.store.save(conversation)
+        return reply
+
+    def send_voice(
+        self,
+        conversation: Conversation,
+        user_message: str,
+        on_token: Callable[[str], None] | None = None,
+    ) -> str:
+        conversation.append("user", user_message)
+        prompt_task, model = self._route_for(conversation.task, user_message, False)
+        messages = conversation.as_ollama_messages(
+            system_prompt_for(
+                prompt_task,
+                self.config.system_prompts,
+                self.config.memory_context(),
+                self._knowledge_context(user_message),
+                voice_mode=True,
+            ),
+            char_limit=self.config.history_char_limit,
+        )
         try:
             reply = self.client.chat(messages, model, on_token=on_token)
         except GenerationCancelled:

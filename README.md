@@ -60,12 +60,14 @@ and System.
 Voice uses your Windows default microphone, with a live input level and a
 short test so a silent or incorrectly routed device is visible before
 transcription starts. It also handles local voice commands like "Hi Nexus",
-"Nexus open settings", "Nexus go to knowledge", and "Nexus test microphone"
-without sending those commands to a model. "Hi Nexus" gives an immediate spoken
-acknowledgement when reply speech is enabled. Chat has session search, safe response regeneration,
-and approval-based persistent memory. The System page applies hardware profiles,
-installs recommended Ollama models, benchmarks local model speed, shows
-version/build metadata, opens logs, and copies diagnostics for troubleshooting.
+"Nexus stop listening", "Nexus open settings", "Nexus go to knowledge", and
+"Nexus test microphone" without sending those commands to a model. "Hi Nexus"
+gives an immediate spoken acknowledgement, then keeps the Voice tab listening
+for a more natural back-and-forth until you tell it to pause. Chat has session
+search, safe response regeneration, and approval-based persistent memory. The
+System page applies hardware profiles, installs recommended Ollama models,
+benchmarks local model speed, shows version/build metadata, opens logs, and
+copies diagnostics for troubleshooting.
 
 ## Quick start
 
@@ -364,7 +366,9 @@ needing a real Ollama server running.
   CPU-only, with silence/noise filtering so it doesn't hallucinate text
   out of dead air), sends it to the same assistant, and speaks the
   reply back (local TTS via Windows SAPI5/pyttsx3) - all fully offline.
-  The Chat tab stays typing-only on purpose. See
+  Say "Hi Nexus" to start a hands-free conversation loop, and "stop
+  listening" or "goodbye Nexus" to pause it. The Chat tab stays
+  typing-only on purpose. See
   [Voice input and reading replies aloud](SETUP.md#voice-input-and-reading-replies-aloud).
 - ✅ **A real standalone .exe** — `Build-PersonalAI-Exe.ps1` packages the
   GUI as `PersonalAI.exe`, no conda/terminal needed to launch it. See
@@ -397,8 +401,8 @@ needing a real Ollama server running.
   capability, applies a local hardware profile, installs recommended Ollama
   models, and benchmarks fast/general/deep model speed from the desktop app.
 - ✅ **Local voice commands** — spoken commands such as "Nexus open settings",
-  "Nexus go to knowledge", "Nexus test microphone", and "Hi Nexus" are handled
-  directly by the app instead of spending a model request.
+  "Nexus go to knowledge", "Nexus test microphone", "Hi Nexus", and "goodbye
+  Nexus" are handled directly by the app instead of spending a model request.
 - ✅ **Production diagnostics** — the System page shows version/build metadata,
   a readiness checklist, setup repair actions, a log opener, and a copyable
   diagnostics snapshot for moving the EXE to another PC.

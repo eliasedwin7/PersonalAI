@@ -47,6 +47,9 @@ def test_round_trip(tmp_path):
     assert reloaded.global_hotkey_enabled is True
     assert reloaded.setup_completed is False
     assert reloaded.voice_commands_enabled is True
+    assert reloaded.voice_continuous_conversation is False
+    assert reloaded.voice_tts_rate == 165
+    assert reloaded.voice_tts_volume == 0.92
     assert reloaded.memory_entries[0].text == "Prefers concise answers."
     assert "Prefers concise answers." in reloaded.memory_context()
     # untouched tasks keep their defaults after a partial models dict is saved

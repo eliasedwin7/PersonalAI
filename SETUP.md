@@ -169,7 +169,9 @@ in the GUI's session list, and vice versa):
   line** — handy for longer story or code messages.
 - **Voice** — an actual talk-to-it assistant. Tap the pulsing orb once
   and say something - it notices when you've gone quiet and stops on
-  its own, then answers back both as text and out loud. See
+  its own, then answers back both as text and out loud. Say **"Hi
+  Nexus"** to open a hands-free back-and-forth, and **"goodbye Nexus"**
+  or **"stop listening"** when you want it to pause. See
   [Voice input and reading replies aloud](#voice-input-and-reading-replies-aloud)
   below.
 - **Knowledge** — index selected local folders once. Relevant passages are
@@ -245,6 +247,15 @@ anything.
    out loud ("Speaking…") before returning to idle, ready for the next
    turn.
 
+For a more Jarvis-style exchange, tap the orb and say **"Hi Nexus"**.
+Nexus answers immediately, then starts listening again after each spoken
+reply so you can talk back naturally. The **Keep listening** checkbox
+does the same thing without needing the greeting first. Say **"stop
+listening"**, **"pause listening"**, or **"goodbye Nexus"** to end that
+hands-free loop. Spoken replies use a shorter voice-specific prompt so
+the model avoids markdown, long lists, and stiff phrasing when it is
+talking out loud.
+
 If it doesn't hear anything clearly above the room's background noise,
 it says so ("Didn't hear anything - tap to try again") and goes back to
 idle instead of guessing - Whisper-family models are known to
@@ -273,7 +284,9 @@ point of it) — uncheck "Speak replies aloud" there if you'd rather use
 it as voice-to-text dictation without the spoken reply. Uses `pyttsx3`,
 which drives Windows' own built-in text-to-speech (SAPI5) — no model
 download, no internet, whatever voice is set in Windows' own Speech
-settings.
+settings. Nexus also slows the default speaking rate slightly and prefers
+a softer installed Windows voice when one is available; you can adjust
+rate, volume, and continuous listening under **File → Settings… → Voice**.
 
 If these packages didn't install automatically (older install, or a
 sandboxed/restricted environment where `sounddevice`'s microphone access
@@ -498,18 +511,12 @@ means the app's own sensitivity needs adjusting rather than the mic.
 
 **On some newer laptops, `mic-test` shows several devices with the same
 mic's name** (e.g. multiple "Microphone Array" entries) - only one of
-them may actually carry sound. This is a Realtek/Intel "Smart Sound
-Technology" thing: the OS-picked default is often a legacy endpoint
-that's silently disconnected from the real hardware, while the one that
-works is usually named with "**with SST**" in it. Use `myai mic-test
---device N` to try each one from the list until you find one with real
-levels, then `myai config set mic_device N` (or Settings' Microphone
-dropdown) to make the Voice tab use it. These "with SST" endpoints can
-also be flaky about being *reopened* - if one that worked suddenly
-stops responding to `mic-test` too (not just the Voice tab), that's a
-driver-level lockup, not this app losing track of anything; restarting
-the "Windows Audio" service (services.msc) or rebooting typically
-clears it.
+them may actually carry sound. Nexus now keeps the app simple and uses
+the Windows default input, so fix this in **Windows Settings → System →
+Sound → Input** by choosing the headset or microphone that shows real
+levels. If a device that worked suddenly stops responding to `mic-test`
+too, that's usually a driver-level lockup; restarting the "Windows Audio"
+service (services.msc) or rebooting typically clears it.
 
 **The built .exe won't launch, or the mic/read-aloud controls work in
 `myai gui` but not in the frozen .exe**

@@ -47,11 +47,30 @@ def parse_app_command(
             "voice_greeting",
             response="Hi. I'm here. What would you like to work on?",
         )
+    sleep_phrases = {
+        "stop listening",
+        "pause listening",
+        "go quiet",
+        "sleep",
+        "goodbye",
+        "bye",
+    }
+    if wake:
+        sleep_phrases.update({
+            f"{wake} stop listening",
+            f"{wake} pause listening",
+            f"goodbye {wake}",
+            f"bye {wake}",
+        })
+    if command in sleep_phrases:
+        return AppCommand("voice_sleep", response="Okay. I'll pause here.")
     if wake and command.startswith(wake):
         command = command[len(wake):].strip(" ,")
     elif not command.startswith(("open ", "go to ", "switch to ", "show ", "test ")):
         return None
 
+    if command in {"stop listening", "pause listening", "go quiet", "sleep", "goodbye", "bye"}:
+        return AppCommand("voice_sleep", response="Okay. I'll pause here.")
     if command in {"settings", "open settings", "show settings"}:
         return AppCommand("open_settings", response="Opening Settings.")
     if command in {"new chat", "start new chat", "open new chat"}:

@@ -30,3 +30,15 @@ def test_parse_app_command_recognizes_hi_nexus_greeting():
     assert command is not None
     assert command.action == "voice_greeting"
     assert "I'm here" in command.response
+
+
+def test_parse_app_command_recognizes_voice_sleep_phrases():
+    command = parse_app_command("Goodbye Nexus")
+
+    assert command is not None
+    assert command.action == "voice_sleep"
+    assert "pause" in command.response
+
+    command = parse_app_command("Friday stop listening", wake_word="friday")
+    assert command is not None
+    assert command.action == "voice_sleep"

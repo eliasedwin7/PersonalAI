@@ -508,6 +508,9 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"unload_models_after_reply = {config.unload_models_after_reply}")
     print(f"voice_commands_enabled = {config.voice_commands_enabled}")
     print(f"voice_wake_word    = {config.voice_wake_word}")
+    print(f"voice_continuous_conversation = {config.voice_continuous_conversation}")
+    print(f"voice_tts_rate     = {config.voice_tts_rate}")
+    print(f"voice_tts_volume   = {config.voice_tts_volume}")
     print(f"agent_workspace     = {config.agent_workspace or '(not set)'}")
     print(f"agent_mode          = {config.agent_mode}")
     print(f"forge_url           = {config.forge_url}")
@@ -613,6 +616,29 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         config.voice_commands_enabled = value.lower() == "true"
     elif key == "voice_wake_word":
         config.voice_wake_word = value.strip() or "nexus"
+    elif key == "voice_continuous_conversation":
+        if value.lower() not in ("true", "false"):
+            print("voice_continuous_conversation must be 'true' or 'false'.", file=sys.stderr)
+            return 1
+        config.voice_continuous_conversation = value.lower() == "true"
+    elif key == "voice_tts_rate":
+        try:
+            config.voice_tts_rate = int(value)
+        except ValueError:
+            print("voice_tts_rate must be a number from 120 to 220.", file=sys.stderr)
+            return 1
+        if not 120 <= config.voice_tts_rate <= 220:
+            print("voice_tts_rate must be a number from 120 to 220.", file=sys.stderr)
+            return 1
+    elif key == "voice_tts_volume":
+        try:
+            config.voice_tts_volume = float(value)
+        except ValueError:
+            print("voice_tts_volume must be a number from 0.2 to 1.0.", file=sys.stderr)
+            return 1
+        if not 0.2 <= config.voice_tts_volume <= 1.0:
+            print("voice_tts_volume must be a number from 0.2 to 1.0.", file=sys.stderr)
+            return 1
     elif key == "read_replies_aloud":
         if value.lower() not in ("true", "false"):
             print("read_replies_aloud must be 'true' or 'false'.", file=sys.stderr)
@@ -659,7 +685,8 @@ def cmd_config_set(args: argparse.Namespace) -> int:
               "mic_device, whisper_model, read_replies_aloud, agent_workspace, "
               "assistant_memory, global_hotkey_enabled, setup_completed, "
               "local_model_profile, intelligent_routing, unload_models_after_reply, "
-              "voice_commands_enabled, voice_wake_word, "
+              "voice_commands_enabled, voice_wake_word, voice_continuous_conversation, "
+              "voice_tts_rate, voice_tts_volume, "
               "agent_mode, forge_url, image_save_dir, models.general, models.story, "
               "models.code, models.vision, "
               "prompts.general, prompts.story, prompts.code, prompts.vision "
