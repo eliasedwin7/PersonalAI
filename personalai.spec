@@ -19,6 +19,7 @@ block_cipher = None
 
 datas = [
     ("personalai/ui/icon.ico", "personalai/ui"),
+    ("personalai/build_info.json", "personalai"),
 ]
 datas += collect_data_files("sounddevice")     # bundled portaudio DLL
 datas += collect_data_files("faster_whisper")  # tokenizer/asset files

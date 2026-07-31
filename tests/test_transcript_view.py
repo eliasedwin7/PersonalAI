@@ -63,6 +63,18 @@ def test_render_transcript_shows_all_messages(qtbot):
     assert "NEXUS\nhello" in text
 
 
+def test_render_transcript_includes_message_timestamps(qtbot):
+    edit = QTextEdit()
+    qtbot.addWidget(edit)
+    conv = Conversation(name="test", task="general", messages=[
+        Message(role="user", content="hi", timestamp="2026-07-31T12:34:00+00:00"),
+    ])
+
+    transcript_view.render_transcript(edit, conv)
+
+    assert "12:34" in edit.toPlainText()
+
+
 def test_render_transcript_renders_assistant_markdown_but_keeps_user_literal(qtbot):
     edit = QTextEdit()
     qtbot.addWidget(edit)

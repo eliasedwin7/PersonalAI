@@ -18,6 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStackedWidget,
+    QStyle,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -48,6 +50,7 @@ from personalai.services import context_service
 from personalai.services.chat_service import TEXT_TASKS, ChatService
 from personalai.services.memory_service import add_approved_entries
 from personalai.ui import transcript_view
+from personalai.ui.icons import standard_icon
 from personalai.ui.workers import TaskHandle, TaskRunner
 
 INPUT_MAX_HEIGHT = 90
@@ -130,6 +133,8 @@ class ChatTab(QWidget):
         session_header.addStretch(1)
         new_btn = QPushButton("New chat")
         new_btn.setObjectName("primaryButton")
+        self._set_button_icon(new_btn, QStyle.StandardPixmap.SP_FileDialogNewFolder)
+        new_btn.setToolTip("Create a new chat")
         new_btn.clicked.connect(self._new_session)
         session_header.addWidget(new_btn)
         left_layout.addLayout(session_header)
@@ -144,6 +149,8 @@ class ChatTab(QWidget):
         self.session_list.customContextMenuRequested.connect(self._on_session_context_menu)
         left_layout.addWidget(self.session_list)
         clear_session_btn = QPushButton("Clear current session")
+        self._set_button_icon(clear_session_btn, QStyle.StandardPixmap.SP_DialogDiscardButton)
+        clear_session_btn.setToolTip("Clear the selected chat history")
         clear_session_btn.clicked.connect(self._clear_current_session)
         left_layout.addWidget(clear_session_btn)
         splitter.addWidget(left)
@@ -167,15 +174,20 @@ class ChatTab(QWidget):
         self.model_label.setObjectName("mutedLabel")
         top_row.addWidget(self.model_label)
         self.deep_btn = QPushButton("Deep")
+        self._set_button_icon(self.deep_btn, QStyle.StandardPixmap.SP_ArrowUp)
         self.deep_btn.setCheckable(True)
         self.deep_btn.setToolTip("Use the full-quality model and a more deliberate reasoning prompt for this reply.")
         top_row.addWidget(self.deep_btn)
         self.memory_btn = QPushButton("Review memory")
+        self._set_button_icon(self.memory_btn, QStyle.StandardPixmap.SP_DialogApplyButton)
         self.memory_btn.setToolTip("Suggest lasting facts from this chat for your approval.")
         self.memory_btn.clicked.connect(self._review_memory)
         top_row.addWidget(self.memory_btn)
         self.attach_btn = QToolButton()
         self.attach_btn.setText("Attach")
+        icon = standard_icon(QStyle.StandardPixmap.SP_DirOpenIcon)
+        if icon is not None:
+            self.attach_btn.setIcon(icon)
         self.attach_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         attach_menu = QMenu(self.attach_btn)
         attach_menu.addAction("Reference files", self._attach_context)
@@ -197,6 +209,7 @@ class ChatTab(QWidget):
         self.context_label.setObjectName("mutedLabel")
         attachment_row.addWidget(self.context_label, stretch=1)
         self.clear_attachments_btn = QPushButton("Clear")
+        self._set_button_icon(self.clear_attachments_btn, QStyle.StandardPixmap.SP_DialogCloseButton)
         self.clear_attachments_btn.clicked.connect(self._clear_attachments)
         self.clear_attachments_btn.setEnabled(False)
         attachment_row.addWidget(self.clear_attachments_btn)
@@ -237,13 +250,21 @@ class ChatTab(QWidget):
 
         self.send_btn = QPushButton("Send")
         self.send_btn.setObjectName("primaryButton")
+        self._set_button_icon(self.send_btn, QStyle.StandardPixmap.SP_ArrowForward)
         self.send_btn.clicked.connect(self._send)
         input_row.addWidget(self.send_btn)
+        self.copy_latest_btn = QPushButton("Copy")
+        self._set_button_icon(self.copy_latest_btn, QStyle.StandardPixmap.SP_DialogSaveButton)
+        self.copy_latest_btn.setToolTip("Copy the latest assistant reply")
+        self.copy_latest_btn.clicked.connect(self._copy_latest_reply)
+        input_row.addWidget(self.copy_latest_btn)
         self.regenerate_btn = QPushButton("Regenerate")
+        self._set_button_icon(self.regenerate_btn, QStyle.StandardPixmap.SP_BrowserReload)
         self.regenerate_btn.setToolTip("Generate a new response to the most recent text message.")
         self.regenerate_btn.clicked.connect(self._regenerate)
         input_row.addWidget(self.regenerate_btn)
         self.stop_btn = QPushButton("Stop")
+        self._set_button_icon(self.stop_btn, QStyle.StandardPixmap.SP_DialogCancelButton)
         self.stop_btn.setToolTip("Stop the reply currently being generated.")
         self.stop_btn.clicked.connect(self._stop_generation)
         self.stop_btn.setVisible(False)
@@ -266,6 +287,12 @@ class ChatTab(QWidget):
         self._reload_sessions()
         self._load_session(self.task_combo.currentText())
         self._refresh_attachment_status()
+
+    @staticmethod
+    def _set_button_icon(button, pixmap: QStyle.StandardPixmap) -> None:
+        icon = standard_icon(pixmap)
+        if icon is not None:
+            button.setIcon(icon)
 
     # ---- sessions ----
 
@@ -398,6 +425,7 @@ class ChatTab(QWidget):
         self.content_stack.setCurrentWidget(self.empty_state if is_empty else self.transcript)
         self._update_model_label()
         self.regenerate_btn.setEnabled(self._can_regenerate())
+        self.copy_latest_btn.setEnabled(self._latest_assistant_reply() is not None)
         self.memory_btn.setEnabled(not self._sending and not self._memory_suggesting and not is_empty)
 
     def _update_model_label(self) -> None:
@@ -415,6 +443,19 @@ class ChatTab(QWidget):
             and request.role == "user"
             and not request.content.startswith("[image:")
         )
+
+    def _latest_assistant_reply(self) -> str | None:
+        if self.conversation is None:
+            return None
+        for message in reversed(self.conversation.messages):
+            if message.role == "assistant" and message.content.strip():
+                return message.content
+        return None
+
+    def _copy_latest_reply(self) -> None:
+        reply = self._latest_assistant_reply()
+        if reply:
+            QApplication.clipboard().setText(reply)
 
     # ---- context ----
 

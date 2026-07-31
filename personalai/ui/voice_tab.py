@@ -299,7 +299,15 @@ class VoiceTab(QWidget):
             transcript_view.append_role_label(self.transcript, "assistant")
             transcript_view.append_body(self.transcript, command.response + "\n\n")
             self.command_requested.emit(command)
-            self._set_state("idle")
+            if self.speak_check.isChecked() and voice_service.is_speech_available():
+                self._set_state("speaking")
+                self.task_runner.submit(
+                    voice_service.speak, command.response,
+                    on_result=lambda _r=None: self._set_state("idle"),
+                    on_error=self._on_error,
+                )
+            else:
+                self._set_state("idle")
             return
         transcript_view.append_role_label(self.transcript, "user")
         transcript_view.append_body(self.transcript, text + "\n\n")

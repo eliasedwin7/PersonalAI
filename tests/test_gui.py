@@ -457,6 +457,27 @@ def test_voice_tab_full_turn_transcribes_replies_and_speaks(
     assert spoken == ["canned reply"]
 
 
+def test_voice_tab_hi_nexus_greeting_is_spoken_without_model_call(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    monkeypatch.setattr(voice_service, "is_speech_available", lambda: True)
+    spoken = []
+    monkeypatch.setattr(voice_service, "speak", lambda text: spoken.append(text))
+
+    from personalai.ui.voice_tab import VoiceTab
+
+    tab = VoiceTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab._on_transcribed("Hi Nexus")
+
+    qtbot.waitUntil(lambda: tab._state == "idle", timeout=5000)
+    assert "Hi Nexus" in tab.transcript.toPlainText()
+    assert "What would you like to work on" in tab.transcript.toPlainText()
+    assert spoken == ["Hi. I'm here. What would you like to work on?"]
+    assert chat_service.client.calls == []
+
+
 def test_voice_tab_skips_transcription_when_no_speech_heard(
     qtbot, chat_service, task_runner, monkeypatch
 ):
@@ -906,6 +927,33 @@ def test_main_window_handles_voice_navigation_command(qtbot, chat_service, tmp_p
     assert window.current_page_label() == "Knowledge"
 
 
+def test_main_window_command_palette_actions_include_core_workflows(
+    qtbot, chat_service, tmp_path, monkeypatch
+):
+    from personalai.core.config import ConfigStore
+    from personalai.ui import main_window as main_window_mod
+    from personalai.ui.main_window import MainWindow
+
+    captured = {}
+
+    class FakePalette:
+        def __init__(self, actions, parent=None):
+            captured["titles"] = [action.title for action in actions]
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr(main_window_mod, "CommandPalette", FakePalette)
+    window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
+    qtbot.addWidget(window)
+
+    window._open_command_palette()
+
+    assert "New chat" in captured["titles"]
+    assert "Run benchmark" in captured["titles"]
+    assert "Go to Agent" in captured["titles"]
+
+
 def test_main_window_remembers_geometry_across_restarts(
     qtbot, chat_service, tmp_path, monkeypatch
 ):
@@ -950,6 +998,38 @@ def test_agent_tab_constructs_with_defaults(qtbot, chat_service, task_runner):
     qtbot.addWidget(tab)
     assert tab.workspace_edit.text() == ""
     assert tab._current_mode().value == "plan"
+
+
+def test_system_tab_shows_onboarding_checklist(qtbot, chat_service, task_runner, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.system_tab import SystemTab
+
+    tab = SystemTab(chat_service, task_runner, ConfigStore(tmp_path / "config.json"))
+    qtbot.addWidget(tab)
+
+    items = [tab.checklist.item(i).text() for i in range(tab.checklist.count())]
+    assert any("Setup profile applied" in item for item in items)
+    assert any("Recommended models installed" in item for item in items)
+    assert "Nexus" in tab.version_label.text()
+
+
+def test_system_tab_copy_diagnostics_includes_version_and_missing_models(
+    qtbot, chat_service, task_runner, tmp_path
+):
+    from PySide6.QtWidgets import QApplication
+
+    from personalai.core.config import ConfigStore
+    from personalai.ui.system_tab import SystemTab
+
+    chat_service.config.apply_local_profile("laptop")
+    tab = SystemTab(chat_service, task_runner, ConfigStore(tmp_path / "config.json"))
+    qtbot.addWidget(tab)
+
+    tab._copy_diagnostics()
+
+    text = QApplication.clipboard().text()
+    assert "Nexus version:" in text
+    assert "Missing models:" in text
 
 
 def test_agent_tab_requires_a_workspace_before_sending(

@@ -79,6 +79,15 @@ Write-Host "Installing voice extras + PyInstaller (if needed)..."
 & $envPython -m pip install --quiet -r "$PSScriptRoot\requirements.txt"
 & $envPython -m pip install --quiet "pyinstaller>=6.0"
 
+$buildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$buildInfoPath = Join-Path $PSScriptRoot "personalai\build_info.json"
+$originalBuildInfo = if (Test-Path $buildInfoPath) {
+    Get-Content -Raw -Path $buildInfoPath
+} else {
+    "{`n  `"build_date`": `"development`"`n}"
+}
+Set-Content -Path $buildInfoPath -Value "{`n  `"build_date`": `"$buildDate`"`n}" -Encoding UTF8
+
 Write-Host "Building (this takes a few minutes - faster-whisper's ctranslate2 backend is large)..."
 Push-Location $PSScriptRoot
 try {
@@ -86,6 +95,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed (exit $LASTEXITCODE)" }
 } finally {
     Pop-Location
+    Set-Content -Path $buildInfoPath -Value $originalBuildInfo -Encoding UTF8
 }
 
 $exePath = "$PSScriptRoot\dist\Nexus\Nexus.exe"

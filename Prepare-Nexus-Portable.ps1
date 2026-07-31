@@ -37,6 +37,8 @@ Nexus portable bundle
 5. Keep "Release GPU memory after each reply" enabled when Forge or ComfyUI
    is running on the same GPU.
 
+6. If something fails, open System > Copy diagnostics or System > Open logs.
+
 Conversations and memory live in:
 %USERPROFILE%\.personalai
 "@

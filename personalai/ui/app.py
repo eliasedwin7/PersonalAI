@@ -7,6 +7,7 @@ import sys
 
 from personalai.core import config as config_mod
 from personalai.core.conversation import ConversationStore
+from personalai.core.logging_config import configure_logging
 from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
 from personalai.services.knowledge_service import KnowledgeStore
@@ -21,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     from personalai.ui.theme import apply_dark_theme
 
     config_mod.ensure_dirs()
+    configure_logging()
     config_store = config_mod.ConfigStore()
     config = config_store.load()
     chat_service = ChatService(

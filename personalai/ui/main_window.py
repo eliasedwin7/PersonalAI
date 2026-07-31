@@ -14,9 +14,10 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -25,17 +26,22 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QStackedWidget,
+    QStyle,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
+from personalai.core.backup import export_backup
 from personalai.core.config import ConfigStore
+from personalai.core.conversation import ConversationStore
 from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
 from personalai.services.image_service import build_forge_client
 from personalai.ui.agent_tab import AgentTab
 from personalai.ui.chat_tab import ChatTab
+from personalai.ui.command_palette import CommandPalette, PaletteAction
+from personalai.ui.icons import standard_icon
 from personalai.ui.images_page import ImagesPage
 from personalai.ui.knowledge_tab import KnowledgeTab
 from personalai.ui.settings_dialog import SettingsDialog
@@ -63,6 +69,7 @@ class MainWindow(QMainWindow):
         self._restore_geometry()
 
         self._build_workspace()
+        self._build_shortcuts()
 
         self.status_label = QLabel(f"{chat_service.config.backend}: checking…")
         self.statusBar().addPermanentWidget(self.status_label)
@@ -105,8 +112,19 @@ class MainWindow(QMainWindow):
         self.navigation = QListWidget()
         self.navigation.setObjectName("navigationList")
         self._page_labels = ("Chat", "Voice", "Knowledge", "Images", "Agent", "System")
+        page_icons = {
+            "Chat": QStyle.StandardPixmap.SP_MessageBoxInformation,
+            "Voice": QStyle.StandardPixmap.SP_MediaVolume,
+            "Knowledge": QStyle.StandardPixmap.SP_DirIcon,
+            "Images": QStyle.StandardPixmap.SP_FileDialogContentsView,
+            "Agent": QStyle.StandardPixmap.SP_ComputerIcon,
+            "System": QStyle.StandardPixmap.SP_FileDialogDetailedView,
+        }
         for label in self._page_labels:
             item = QListWidgetItem(label)
+            icon = standard_icon(page_icons[label])
+            if icon is not None:
+                item.setIcon(icon)
             item.setData(Qt.ItemDataRole.UserRole, label)
             self.navigation.addItem(item)
         self.navigation.currentRowChanged.connect(self._select_page)
@@ -117,6 +135,9 @@ class MainWindow(QMainWindow):
         side_layout.addWidget(self.connection_label)
         settings_button = QPushButton("Settings")
         settings_button.setObjectName("sideButton")
+        icon = standard_icon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        if icon is not None:
+            settings_button.setIcon(icon)
         settings_button.clicked.connect(self._open_settings)
         side_layout.addWidget(settings_button)
         shell_layout.addWidget(side_bar)
@@ -158,6 +179,52 @@ class MainWindow(QMainWindow):
         if 0 <= index < len(self._page_labels):
             return self._page_labels[index]
         return ""
+
+    def _build_shortcuts(self) -> None:
+        self.palette_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        self.palette_shortcut.activated.connect(self._open_command_palette)
+
+    def _open_command_palette(self) -> None:
+        actions = [
+            PaletteAction("New chat", "Create a fresh general conversation", self.chat_tab.start_quick_session),
+            PaletteAction("Open Settings", "Connection, models, voice, memory, prompts", self._open_settings),
+            PaletteAction("Run benchmark", "Test local model response speed", self._run_system_benchmark),
+            PaletteAction("Open setup", "Apply the recommended local hardware profile", self._open_setup_from_palette),
+            PaletteAction("Repair setup", "Apply profile and show missing models", self.system_tab._repair_setup),
+            PaletteAction("Test microphone", "Check whether Nexus hears the default input", self._test_microphone_from_palette),
+            PaletteAction("Export backup", "Save conversations and approved memory to a ZIP", self._export_backup),
+            PaletteAction("Open logs", "Open the Nexus desktop log file", self.system_tab._open_logs),
+            PaletteAction("Copy diagnostics", "Copy version, model, voice, and setup status", self.system_tab._copy_diagnostics),
+            PaletteAction("Install Ollama", "Open the Ollama download page", self.system_tab._open_ollama_download),
+        ]
+        for label in self._page_labels:
+            actions.append(PaletteAction(f"Go to {label}", f"Open the {label} workspace", lambda label=label: self.select_page(label)))
+        CommandPalette(actions, self).exec()
+
+    def _run_system_benchmark(self) -> None:
+        self.select_page("System")
+        self.system_tab._run_benchmark()
+
+    def _open_setup_from_palette(self) -> None:
+        self.select_page("System")
+        self.system_tab._open_setup()
+
+    def _test_microphone_from_palette(self) -> None:
+        self.select_page("Voice")
+        self.voice_tab._test_microphone()
+
+    def _export_backup(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Nexus backup", "nexus-backup.zip", "ZIP files (*.zip)"
+        )
+        if not path:
+            return
+        try:
+            export_backup(Path(path), self.config_store.path, ConversationStore())
+        except OSError as exc:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.warning(self, "Export backup", str(exc))
 
     # ---- window geometry (remembered across restarts) ----
 

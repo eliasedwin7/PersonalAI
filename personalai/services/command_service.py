@@ -36,6 +36,17 @@ def parse_app_command(
     if not command:
         return None
     wake = wake_word.casefold().strip()
+    greetings = {
+        f"hi {wake}",
+        f"hey {wake}",
+        f"hello {wake}",
+        wake,
+    } if wake else set()
+    if command in greetings:
+        return AppCommand(
+            "voice_greeting",
+            response="Hi. I'm here. What would you like to work on?",
+        )
     if wake and command.startswith(wake):
         command = command[len(wake):].strip(" ,")
     elif not command.startswith(("open ", "go to ", "switch to ", "show ", "test ")):

@@ -13,14 +13,23 @@ you didn't intend.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextDocumentFragment
+from datetime import datetime
+
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QTextCharFormat,
+    QTextDocumentFragment,
+    QTextLength,
+    QTextTableFormat,
+)
 from PySide6.QtWidgets import QTextEdit
 
 from personalai.core.conversation import Conversation
 
 ROLE_LABELS = {
-    "user": ("YOU", "#aeb4a7"),
-    "assistant": ("NEXUS", "#75d8a1"),
+    "user": ("YOU", "#9fb2ff"),
+    "assistant": ("NEXUS", "#7ee0b2"),
 }
 
 
@@ -69,10 +78,55 @@ def render_transcript(text_edit: QTextEdit, conversation: Conversation | None) -
     if conversation is None:
         return
     for msg in conversation.messages:
-        append_role_label(text_edit, msg.role)
-        if msg.role == "assistant":
-            append_markdown_body(text_edit, msg.content)
-        else:
-            append_body(text_edit, msg.content)
-        append_body(text_edit, "\n\n")
+        append_message_block(text_edit, msg.role, msg.content, msg.timestamp)
     scroll_to_bottom(text_edit)
+
+
+def append_message_block(text_edit: QTextEdit, role: str, content: str, timestamp: str = "") -> None:
+    label, color = ROLE_LABELS.get(role, (role.upper(), "#c8c8c8"))
+    cursor = text_edit.textCursor()
+    cursor.movePosition(cursor.MoveOperation.End)
+
+    table_format = QTextTableFormat()
+    table_format.setCellPadding(12)
+    table_format.setCellSpacing(0)
+    table_format.setBorder(1)
+    table_format.setBorderBrush(QColor("#263041"))
+    table_format.setBackground(QColor("#12151c" if role == "assistant" else "#151a26"))
+    table_format.setColumnWidthConstraints([QTextLength(QTextLength.Type.PercentageLength, 100)])
+    table = cursor.insertTable(1, 1, table_format)
+    cell_cursor = table.cellAt(0, 0).firstCursorPosition()
+
+    role_format = QTextCharFormat()
+    role_format.setForeground(QColor(color))
+    role_format.setFontWeight(QFont.Weight.Bold)
+    cell_cursor.setCharFormat(role_format)
+    cell_cursor.insertText(label)
+
+    when = _short_time(timestamp)
+    if when:
+        meta_format = QTextCharFormat()
+        meta_format.setForeground(QColor("#7f8798"))
+        cell_cursor.setCharFormat(meta_format)
+        cell_cursor.insertText(f"  {when}")
+
+    cell_cursor.insertBlock()
+    cell_cursor.setCharFormat(QTextCharFormat())
+    if role == "assistant":
+        cell_cursor.insertFragment(QTextDocumentFragment.fromMarkdown(content))
+    else:
+        cell_cursor.insertText(content)
+
+    cursor = table.lastCursorPosition()
+    text_edit.setTextCursor(cursor)
+    append_body(text_edit, "\n\n")
+
+
+def _short_time(timestamp: str) -> str:
+    if not timestamp:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return ""
+    return parsed.strftime("%H:%M")

@@ -119,6 +119,10 @@ def apply_dark_theme(app: QApplication) -> None:
             color: #f7f8fb;
             border-left: 3px solid #7c9cff;
         }
+        QDialog#commandPalette {
+            background: #111318;
+            border: 1px solid #303746;
+        }
         QListWidget {
             border: 1px solid #242832;
             border-radius: 6px;
