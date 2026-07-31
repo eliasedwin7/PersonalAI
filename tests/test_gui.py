@@ -95,6 +95,23 @@ def test_chat_tab_constructs_and_has_default_sessions(qtbot, chat_service, task_
     assert tab.conversation.task == "general"
 
 
+def test_chat_tab_session_pane_can_be_minimized(qtbot, chat_service, task_runner):
+    from personalai.ui.chat_tab import ChatTab
+
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab._toggle_session_pane()
+
+    assert tab.session_pane.isHidden()
+    assert tab.sessions_toggle_btn.text() == "Show sessions"
+
+    tab._toggle_session_pane()
+
+    assert not tab.session_pane.isHidden()
+    assert tab.sessions_toggle_btn.text() == "Hide sessions"
+
+
 def test_chat_tab_send_appends_transcript_and_saves(qtbot, chat_service, task_runner):
     from personalai.ui.chat_tab import ChatTab
 
@@ -294,11 +311,11 @@ def test_chat_tab_downloads_missing_recommended_model_when_selected(
     tab = ChatTab(chat_service, task_runner, store)
     qtbot.addWidget(tab)
 
-    tab.model_combo.setCurrentText("qwen3:4b [download]")
+    tab.model_combo.setCurrentText("qwen3:8b [download]")
 
-    qtbot.waitUntil(lambda: pulled == ["qwen3:4b"], timeout=5000)
+    qtbot.waitUntil(lambda: pulled == ["qwen3:8b"], timeout=5000)
     qtbot.waitUntil(lambda: tab.model_combo.isEnabled(), timeout=5000)
-    assert store.load().model_for("general") == "qwen3:4b"
+    assert store.load().model_for("general") == "qwen3:8b"
 
 
 def test_chat_tab_new_session_creates_and_lists_it(qtbot, chat_service, task_runner, monkeypatch):
@@ -496,6 +513,18 @@ def test_voice_tab_has_its_own_sessions(qtbot, chat_service, task_runner, monkey
     assert "voice-idea" in names
     assert "chat-only" not in names
     assert tab.conversation.task == "voice"
+
+
+def test_voice_tab_session_pane_can_be_minimized(qtbot, chat_service, task_runner):
+    from personalai.ui.voice_tab import VoiceTab
+
+    tab = VoiceTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab._toggle_session_pane()
+
+    assert tab.session_pane.isHidden()
+    assert tab.sessions_toggle_btn.text() == "Show sessions"
 
 
 def test_voice_tab_full_turn_transcribes_replies_and_speaks(
@@ -761,6 +790,18 @@ def test_caption_tab_constructs(qtbot, chat_service, task_runner):
     assert "vision" in names
     assert tab.conversation.name == "vision"
     assert tab.image_path is None
+
+
+def test_caption_tab_session_pane_can_be_minimized(qtbot, chat_service, task_runner):
+    from personalai.ui.caption_tab import CaptionTab
+
+    tab = CaptionTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab._toggle_session_pane()
+
+    assert tab.session_pane.isHidden()
+    assert tab.sessions_toggle_btn.text() == "Show sessions"
 
 
 def test_caption_tab_has_its_own_image_sessions(qtbot, chat_service, task_runner, monkeypatch):
@@ -1074,6 +1115,29 @@ def test_main_window_constructs_with_focused_workspaces(qtbot, chat_service, tmp
     assert window.images_page.tabs.tabText(1) == "Generate"
 
 
+def test_main_window_navigation_can_be_minimized(qtbot, chat_service, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.main_window import MainWindow
+
+    window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
+    qtbot.addWidget(window)
+
+    window._toggle_navigation()
+
+    assert window._navigation_collapsed is True
+    assert window.side_bar.minimumWidth() == 64
+    assert window.side_bar.maximumWidth() == 64
+    assert [window.navigation.item(i).text() for i in range(window.navigation.count())] == [
+        "", "", "", "", "", "",
+    ]
+    assert window.navigation.item(0).toolTip() == "Chat"
+
+    window._toggle_navigation()
+
+    assert window._navigation_collapsed is False
+    assert window.navigation.item(0).text() == "Chat"
+
+
 def test_main_window_handles_voice_navigation_command(qtbot, chat_service, tmp_path):
     from personalai.core.config import ConfigStore
     from personalai.services.command_service import AppCommand
@@ -1161,6 +1225,18 @@ def test_agent_tab_constructs_with_defaults(qtbot, chat_service, task_runner):
     assert tab._current_mode().value == "plan"
     assert tab.do_it_btn.isHidden()
     assert tab.turn_status.isHidden()
+
+
+def test_agent_tab_session_pane_can_be_minimized(qtbot, chat_service, task_runner):
+    from personalai.ui.agent_tab import AgentTab
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab._toggle_session_pane()
+
+    assert tab.session_pane.isHidden()
+    assert tab.sessions_toggle_btn.text() == "Show sessions"
 
 
 def test_system_tab_shows_onboarding_checklist(qtbot, chat_service, task_runner, tmp_path):
@@ -1367,11 +1443,11 @@ def test_agent_tab_downloads_missing_recommended_model_when_selected(
     tab = AgentTab(chat_service, task_runner, store)
     qtbot.addWidget(tab)
 
-    tab.model_combo.setCurrentText("qwen3:4b [download]")
+    tab.model_combo.setCurrentText("qwen3:8b [download]")
 
-    qtbot.waitUntil(lambda: pulled == ["qwen3:4b"], timeout=5000)
+    qtbot.waitUntil(lambda: pulled == ["qwen3:8b"], timeout=5000)
     qtbot.waitUntil(lambda: tab.model_combo.isEnabled(), timeout=5000)
-    assert store.load().model_for("agent") == "qwen3:4b"
+    assert store.load().model_for("agent") == "qwen3:8b"
 
 
 def test_agent_tab_filters_tool_call_bookkeeping_from_transcript(

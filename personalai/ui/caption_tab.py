@@ -54,9 +54,11 @@ class CaptionTab(QWidget):
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         shell = QSplitter(Qt.Orientation.Horizontal)
+        self.session_splitter = shell
         outer.addWidget(shell)
 
         left = QWidget()
+        self.session_pane = left
         left.setObjectName("sessionPane")
         left.setMinimumWidth(220)
         left_layout = QVBoxLayout(left)
@@ -95,6 +97,10 @@ class CaptionTab(QWidget):
         self.path_label.setObjectName("mutedLabel")
         pick_row.addWidget(pick_btn)
         pick_row.addWidget(self.path_label, stretch=1)
+        self.sessions_toggle_btn = QPushButton("Hide sessions")
+        self.sessions_toggle_btn.setToolTip("Minimize or restore image description sessions.")
+        self.sessions_toggle_btn.clicked.connect(self._toggle_session_pane)
+        pick_row.addWidget(self.sessions_toggle_btn)
         layout.addLayout(pick_row)
 
         self.preview = QLabel()
@@ -135,6 +141,11 @@ class CaptionTab(QWidget):
                 item = QListWidgetItem(conv.name)
                 item.setData(Qt.ItemDataRole.UserRole, conv.name)
                 self.session_list.addItem(item)
+
+    def _toggle_session_pane(self) -> None:
+        hide = not self.session_pane.isHidden()
+        self.session_pane.setVisible(not hide)
+        self.sessions_toggle_btn.setText("Show sessions" if hide else "Hide sessions")
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         if self._working:

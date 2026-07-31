@@ -148,9 +148,11 @@ class VoiceTab(QWidget):
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         shell = QSplitter(Qt.Orientation.Horizontal)
+        self.session_splitter = shell
         outer.addWidget(shell)
 
         left = QWidget()
+        self.session_pane = left
         left.setObjectName("sessionPane")
         left.setMinimumWidth(220)
         left_layout = QVBoxLayout(left)
@@ -182,9 +184,16 @@ class VoiceTab(QWidget):
         layout.setContentsMargins(24, 18, 24, 18)
         layout.setSpacing(12)
 
+        title_row = QHBoxLayout()
         title = QLabel("Voice conversation")
         title.setObjectName("pageTitle")
-        layout.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch(1)
+        self.sessions_toggle_btn = QPushButton("Hide sessions")
+        self.sessions_toggle_btn.setToolTip("Minimize or restore the voice session list.")
+        self.sessions_toggle_btn.clicked.connect(self._toggle_session_pane)
+        title_row.addWidget(self.sessions_toggle_btn)
+        layout.addLayout(title_row)
 
         device_row = QHBoxLayout()
         device_row.addWidget(QLabel("Microphone: System default"))
@@ -274,6 +283,11 @@ class VoiceTab(QWidget):
                 item = QListWidgetItem(conv.name)
                 item.setData(Qt.ItemDataRole.UserRole, conv.name)
                 self.session_list.addItem(item)
+
+    def _toggle_session_pane(self) -> None:
+        hide = not self.session_pane.isHidden()
+        self.session_pane.setVisible(not hide)
+        self.sessions_toggle_btn.setText("Show sessions" if hide else "Hide sessions")
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         if self._state != "idle":

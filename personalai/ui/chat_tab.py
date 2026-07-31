@@ -128,9 +128,11 @@ class ChatTab(QWidget):
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.session_splitter = splitter
         outer.addWidget(splitter)
 
         left = QWidget()
+        self.session_pane = left
         left.setObjectName("sessionPane")
         left.setMinimumWidth(220)
         left_layout = QVBoxLayout(left)
@@ -175,6 +177,10 @@ class ChatTab(QWidget):
         self.conversation_title.setObjectName("paneTitle")
         top_row.addWidget(self.conversation_title)
         top_row.addStretch(1)
+        self.sessions_toggle_btn = QPushButton("Hide sessions")
+        self.sessions_toggle_btn.setToolTip("Minimize or restore the chat session list.")
+        self.sessions_toggle_btn.clicked.connect(self._toggle_session_pane)
+        top_row.addWidget(self.sessions_toggle_btn)
         self.task_combo = QComboBox()
         self.task_combo.addItems(list(TEXT_TASKS))
         self.task_combo.currentTextChanged.connect(self._on_task_changed)
@@ -356,6 +362,11 @@ class ChatTab(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, (name, task, label))
             item.setToolTip(snippet)
             self.session_list.addItem(item)
+
+    def _toggle_session_pane(self) -> None:
+        hide = not self.session_pane.isHidden()
+        self.session_pane.setVisible(not hide)
+        self.sessions_toggle_btn.setText("Show sessions" if hide else "Hide sessions")
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         result = item.data(Qt.ItemDataRole.UserRole)

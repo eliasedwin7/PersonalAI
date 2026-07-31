@@ -95,9 +95,11 @@ class AgentTab(QWidget):
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         shell = QSplitter(Qt.Orientation.Horizontal)
+        self.session_splitter = shell
         outer.addWidget(shell)
 
         left = QWidget()
+        self.session_pane = left
         left.setObjectName("sessionPane")
         left.setMinimumWidth(220)
         left_layout = QVBoxLayout(left)
@@ -134,6 +136,10 @@ class AgentTab(QWidget):
         self.workspace_edit = QLineEdit(chat_service.config.agent_workspace or "")
         self.workspace_edit.setPlaceholderText("Folder the agent may read/edit/run commands in")
         top_row.addWidget(self.workspace_edit, stretch=1)
+        self.sessions_toggle_btn = QPushButton("Hide sessions")
+        self.sessions_toggle_btn.setToolTip("Minimize or restore agent sessions.")
+        self.sessions_toggle_btn.clicked.connect(self._toggle_session_pane)
+        top_row.addWidget(self.sessions_toggle_btn)
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self._browse_workspace)
         top_row.addWidget(browse_btn)
@@ -243,6 +249,11 @@ class AgentTab(QWidget):
                 item = QListWidgetItem(conv.name)
                 item.setData(Qt.ItemDataRole.UserRole, conv.name)
                 self.session_list.addItem(item)
+
+    def _toggle_session_pane(self) -> None:
+        hide = not self.session_pane.isHidden()
+        self.session_pane.setVisible(not hide)
+        self.sessions_toggle_btn.setText("Show sessions" if hide else "Hide sessions")
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         self._load_session(item.data(Qt.ItemDataRole.UserRole) or item.text())
