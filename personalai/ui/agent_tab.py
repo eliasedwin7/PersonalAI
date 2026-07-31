@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -24,8 +25,11 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -45,8 +49,7 @@ from personalai.ui.chat_tab import ChatInputEdit
 from personalai.ui.workers import TaskRunner
 
 AGENT_SESSION = "agent"
-AGENT_TASK = "general"  # picks which model config.model_for() uses; the actual
-                        # system prompt comes from agent_service.system_prompt_for()
+AGENT_TASK = "agent"  # falls back to the general model unless a model is picked inline
 
 MODE_LABELS = {
     AgentMode.PLAN: "Plan (propose only, nothing is applied)",
@@ -75,6 +78,8 @@ class AgentTab(QWidget):
         self.conversation: Conversation = chat_service.store.load_or_create(
             AGENT_SESSION, AGENT_TASK
         )
+        self._ensure_agent_task(self.conversation)
+        self.chat_service.store.save(self.conversation)
         self._sending = False
         self._active_mode: AgentMode | None = None
         self._last_plan_request: str | None = None
@@ -85,7 +90,40 @@ class AgentTab(QWidget):
         self._bridge.activity.connect(self._on_activity)
         self._bridge.confirm_request.connect(self._on_confirm_request)
 
-        layout = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        shell = QSplitter(Qt.Orientation.Horizontal)
+        outer.addWidget(shell)
+
+        left = QWidget()
+        left.setObjectName("sessionPane")
+        left.setMinimumWidth(220)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(14, 16, 14, 14)
+        left_layout.setSpacing(10)
+        session_header = QHBoxLayout()
+        title = QLabel("Agent sessions")
+        title.setObjectName("paneTitle")
+        session_header.addWidget(title)
+        session_header.addStretch(1)
+        new_btn = QPushButton("New")
+        new_btn.setObjectName("primaryButton")
+        new_btn.clicked.connect(self._new_session)
+        session_header.addWidget(new_btn)
+        left_layout.addLayout(session_header)
+        self.session_list = QListWidget()
+        self.session_list.itemClicked.connect(self._on_session_selected)
+        left_layout.addWidget(self.session_list, stretch=1)
+        rename_btn = QPushButton("Rename")
+        rename_btn.clicked.connect(self._rename_current_session)
+        left_layout.addWidget(rename_btn)
+        delete_btn = QPushButton("Delete")
+        delete_btn.clicked.connect(self._delete_current_session)
+        left_layout.addWidget(delete_btn)
+        shell.addWidget(left)
+
+        right = QWidget()
+        layout = QVBoxLayout(right)
         layout.setContentsMargins(24, 18, 24, 18)
         layout.setSpacing(12)
 
@@ -169,11 +207,88 @@ class AgentTab(QWidget):
         self.send_btn.clicked.connect(self._send)
         input_row.addWidget(self.send_btn)
         layout.addLayout(input_row)
+        shell.addWidget(right)
+        shell.setStretchFactor(0, 1)
+        shell.setStretchFactor(1, 4)
+        shell.setSizes([260, 1100])
 
+        self._reload_sessions()
         self._render_transcript()
         self._update_model_combo()
 
     # ---- workspace/mode ----
+
+    def _ensure_agent_task(self, conversation: Conversation) -> None:
+        if conversation.task != AGENT_TASK:
+            conversation.task = AGENT_TASK
+            self.chat_service.store.save(conversation)
+
+    def _reload_sessions(self) -> None:
+        self.session_list.clear()
+        for name in self.chat_service.store.list_all():
+            conv = self.chat_service.store.load_or_create(name, AGENT_TASK)
+            if conv.task == AGENT_TASK or conv.name == AGENT_SESSION:
+                item = QListWidgetItem(conv.name)
+                item.setData(Qt.ItemDataRole.UserRole, conv.name)
+                self.session_list.addItem(item)
+
+    def _on_session_selected(self, item: QListWidgetItem) -> None:
+        self._load_session(item.data(Qt.ItemDataRole.UserRole) or item.text())
+
+    def _load_session(self, name: str) -> None:
+        self.conversation = self.chat_service.store.load_or_create(name, AGENT_TASK)
+        self._ensure_agent_task(self.conversation)
+        self.activity_log.clear()
+        self._last_plan_request = None
+        self.do_it_btn.setEnabled(False)
+        self._render_transcript()
+
+    def _new_session(self) -> None:
+        default = "agent_" + datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        name, ok = QInputDialog.getText(self, "New agent session", "Session name:", text=default)
+        if not ok or not name.strip():
+            return
+        self.conversation = self.chat_service.store.load_or_create(name.strip(), AGENT_TASK)
+        self._ensure_agent_task(self.conversation)
+        self.chat_service.store.save(self.conversation)
+        self.activity_log.clear()
+        self._last_plan_request = None
+        self.do_it_btn.setEnabled(False)
+        self._reload_sessions()
+        self._render_transcript()
+
+    def _rename_current_session(self) -> None:
+        name, ok = QInputDialog.getText(
+            self, "Rename agent session", "New session name:", text=self.conversation.name
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            self.conversation = self.chat_service.store.rename(self.conversation.name, name.strip())
+            self._ensure_agent_task(self.conversation)
+        except PersonalAIError as exc:
+            QMessageBox.warning(self, "Rename session", str(exc))
+            return
+        self._reload_sessions()
+        self._render_transcript()
+
+    def _delete_current_session(self) -> None:
+        if self.conversation.name == AGENT_SESSION and not self.conversation.messages:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete agent session",
+            f"Delete agent session '{self.conversation.name}'? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.chat_service.store.delete(self.conversation.name)
+        self.conversation = self.chat_service.store.load_or_create(AGENT_SESSION, AGENT_TASK)
+        self._ensure_agent_task(self.conversation)
+        self.activity_log.clear()
+        self._reload_sessions()
+        self._render_transcript()
 
     def _browse_workspace(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose a workspace folder")

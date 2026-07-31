@@ -56,6 +56,12 @@ from personalai.ui.workers import TaskHandle, TaskRunner
 INPUT_MAX_HEIGHT = 90
 IMAGE_PREVIEW_HEIGHT = 56
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
+SPECIAL_SESSION_NAMES = {"agent", "voice"}
+TASK_LABELS = {
+    "general": "Chat",
+    "story": "Writing",
+    "code": "Code",
+}
 
 
 class ChatInputEdit(QPlainTextEdit):
@@ -129,11 +135,11 @@ class ChatTab(QWidget):
         left_layout.setContentsMargins(14, 16, 14, 14)
         left_layout.setSpacing(10)
         session_header = QHBoxLayout()
-        sessions_title = QLabel("Chats")
+        sessions_title = QLabel("Chat sessions")
         sessions_title.setObjectName("paneTitle")
         session_header.addWidget(sessions_title)
         session_header.addStretch(1)
-        new_btn = QPushButton("New chat")
+        new_btn = QPushButton("New")
         new_btn.setObjectName("primaryButton")
         self._set_button_icon(new_btn, QStyle.StandardPixmap.SP_FileDialogNewFolder)
         new_btn.setToolTip("Create a new chat")
@@ -141,8 +147,8 @@ class ChatTab(QWidget):
         session_header.addWidget(new_btn)
         left_layout.addLayout(session_header)
         self.session_search = QLineEdit()
-        self.session_search.setPlaceholderText("Search chats and messages")
-        self.session_search.setToolTip("Search saved chat titles and message text across all chat modes.")
+        self.session_search.setPlaceholderText("Search chat sessions and messages")
+        self.session_search.setToolTip("Search saved text chats.")
         self.session_search.textChanged.connect(self._filter_sessions)
         left_layout.addWidget(self.session_search)
         self.session_list = QListWidget()
@@ -311,15 +317,16 @@ class ChatTab(QWidget):
     # ---- sessions ----
 
     def _reload_sessions(self) -> None:
-        """Only list sessions belonging to the CURRENTLY selected task -
-        a caption-tab "vision" session shouldn't show up under Story, and
-        clicking it there would silently mix system prompts."""
-        current_task = self.task_combo.currentText()
-        self._session_names: list[str] = []
+        """List text chat sessions only. Voice and Agent keep their own
+        session rails because their conversations need specialized controls."""
+        self._session_items: list[tuple[str, str, str, str]] = []
         for name in self.chat_service.store.list_all():
-            conv = self.chat_service.store.load_or_create(name, current_task)
-            if conv.task == current_task:
-                self._session_names.append(name)
+            conv = self.chat_service.store.load_or_create(name, "general")
+            if conv.name in SPECIAL_SESSION_NAMES:
+                continue
+            if conv.task in TEXT_TASKS:
+                label = TASK_LABELS.get(conv.task, conv.task.title())
+                self._session_items.append((conv.name, conv.task, label, conv.name))
         self._filter_sessions(self.session_search.text())
 
     def _filter_sessions(self, query: str) -> None:
@@ -327,22 +334,29 @@ class ChatTab(QWidget):
         self.session_list.clear()
         if query:
             for result in self.chat_service.store.search(query):
+                if result.name in SPECIAL_SESSION_NAMES:
+                    continue
                 if result.task not in TEXT_TASKS:
                     continue
-                item = QListWidgetItem(f"{result.name} · {result.task}\n{result.snippet}")
-                item.setData(Qt.ItemDataRole.UserRole, (result.name, result.task))
+                label = TASK_LABELS.get(result.task, result.task.title())
+                item = QListWidgetItem(f"{result.name} · {label}\n{result.snippet}")
+                item.setData(Qt.ItemDataRole.UserRole, (result.name, result.task, "Chat"))
                 item.setToolTip(result.snippet)
                 self.session_list.addItem(item)
             return
-        for name in getattr(self, "_session_names", []):
-            self.session_list.addItem(QListWidgetItem(name))
+        for name, task, label, snippet in getattr(self, "_session_items", []):
+            text = f"{name} · {label}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, (name, task, label))
+            item.setToolTip(snippet)
+            self.session_list.addItem(item)
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         result = item.data(Qt.ItemDataRole.UserRole)
         if result is None:
             self._load_session(item.text())
             return
-        name, task = result
+        name, task, _target = result
         if task != self.task_combo.currentText():
             self.task_combo.blockSignals(True)
             self.task_combo.setCurrentText(task)

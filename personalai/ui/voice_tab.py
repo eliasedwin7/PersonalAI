@@ -12,16 +12,21 @@ rather than a frozen button.
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 
 from PySide6.QtCore import QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QRadialGradient
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -36,7 +41,7 @@ from personalai.ui import transcript_view
 from personalai.ui.workers import TaskRunner
 
 VOICE_SESSION = "voice"
-VOICE_TASK = "general"  # same system prompt as the Chat tab's General mode
+VOICE_TASK = "voice"  # uses general prompt/model fallback with voice-specific prompting
 
 ORB_SIZE = 220
 STATE_COLORS = {
@@ -131,6 +136,8 @@ class VoiceTab(QWidget):
         self.conversation: Conversation = chat_service.store.load_or_create(
             VOICE_SESSION, VOICE_TASK
         )
+        self._ensure_voice_task(self.conversation)
+        self.chat_service.store.save(self.conversation)
         self._state = "idle"
         self._conversation_mode_active = False
         self._recorder: voice_service.Recorder | None = None
@@ -138,7 +145,40 @@ class VoiceTab(QWidget):
         self._silence_timer.setInterval(SILENCE_POLL_MS)
         self._silence_timer.timeout.connect(self._check_auto_stop)
 
-        layout = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        shell = QSplitter(Qt.Orientation.Horizontal)
+        outer.addWidget(shell)
+
+        left = QWidget()
+        left.setObjectName("sessionPane")
+        left.setMinimumWidth(220)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(14, 16, 14, 14)
+        left_layout.setSpacing(10)
+        session_header = QHBoxLayout()
+        title_label = QLabel("Voice sessions")
+        title_label.setObjectName("paneTitle")
+        session_header.addWidget(title_label)
+        session_header.addStretch(1)
+        new_btn = QPushButton("New")
+        new_btn.setObjectName("primaryButton")
+        new_btn.clicked.connect(self._new_session)
+        session_header.addWidget(new_btn)
+        left_layout.addLayout(session_header)
+        self.session_list = QListWidget()
+        self.session_list.itemClicked.connect(self._on_session_selected)
+        left_layout.addWidget(self.session_list, stretch=1)
+        rename_btn = QPushButton("Rename")
+        rename_btn.clicked.connect(self._rename_current_session)
+        left_layout.addWidget(rename_btn)
+        delete_btn = QPushButton("Delete")
+        delete_btn.clicked.connect(self._delete_current_session)
+        left_layout.addWidget(delete_btn)
+        shell.addWidget(left)
+
+        right = QWidget()
+        layout = QVBoxLayout(right)
         layout.setContentsMargins(24, 18, 24, 18)
         layout.setSpacing(12)
 
@@ -211,9 +251,91 @@ class VoiceTab(QWidget):
             self.status_label.setText("Needs the 'sounddevice' and 'faster-whisper' packages")
             self.test_mic_btn.setEnabled(False)
 
+        shell.addWidget(right)
+        shell.setStretchFactor(0, 1)
+        shell.setStretchFactor(1, 4)
+        shell.setSizes([260, 1100])
+
+        self._reload_sessions()
         transcript_view.render_transcript(self.transcript, self.conversation)
 
     # ---- state machine ----
+
+    def _ensure_voice_task(self, conversation: Conversation) -> None:
+        if conversation.task != VOICE_TASK:
+            conversation.task = VOICE_TASK
+            self.chat_service.store.save(conversation)
+
+    def _reload_sessions(self) -> None:
+        self.session_list.clear()
+        for name in self.chat_service.store.list_all():
+            conv = self.chat_service.store.load_or_create(name, VOICE_TASK)
+            if conv.task == VOICE_TASK or conv.name == VOICE_SESSION:
+                item = QListWidgetItem(conv.name)
+                item.setData(Qt.ItemDataRole.UserRole, conv.name)
+                self.session_list.addItem(item)
+
+    def _on_session_selected(self, item: QListWidgetItem) -> None:
+        if self._state != "idle":
+            return
+        self._load_session(item.data(Qt.ItemDataRole.UserRole) or item.text())
+
+    def _load_session(self, name: str) -> None:
+        self.conversation = self.chat_service.store.load_or_create(name, VOICE_TASK)
+        self._ensure_voice_task(self.conversation)
+        self._conversation_mode_active = False
+        transcript_view.render_transcript(self.transcript, self.conversation)
+
+    def _new_session(self) -> None:
+        if self._state != "idle":
+            return
+        default = "voice_" + datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        name, ok = QInputDialog.getText(self, "New voice session", "Session name:", text=default)
+        if not ok or not name.strip():
+            return
+        self.conversation = self.chat_service.store.load_or_create(name.strip(), VOICE_TASK)
+        self._ensure_voice_task(self.conversation)
+        self.chat_service.store.save(self.conversation)
+        self._conversation_mode_active = False
+        self._reload_sessions()
+        transcript_view.render_transcript(self.transcript, self.conversation)
+
+    def _rename_current_session(self) -> None:
+        if self._state != "idle":
+            return
+        name, ok = QInputDialog.getText(
+            self, "Rename voice session", "New session name:", text=self.conversation.name
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            self.conversation = self.chat_service.store.rename(self.conversation.name, name.strip())
+            self._ensure_voice_task(self.conversation)
+        except PersonalAIError as exc:
+            QMessageBox.warning(self, "Rename session", str(exc))
+            return
+        self._reload_sessions()
+        transcript_view.render_transcript(self.transcript, self.conversation)
+
+    def _delete_current_session(self) -> None:
+        if self._state != "idle":
+            return
+        if self.conversation.name == VOICE_SESSION and not self.conversation.messages:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete voice session",
+            f"Delete voice session '{self.conversation.name}'? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.chat_service.store.delete(self.conversation.name)
+        self.conversation = self.chat_service.store.load_or_create(VOICE_SESSION, VOICE_TASK)
+        self._ensure_voice_task(self.conversation)
+        self._conversation_mode_active = False
+        self._reload_sessions()
+        transcript_view.render_transcript(self.transcript, self.conversation)
 
     def _set_state(self, state: str) -> None:
         self._state = state

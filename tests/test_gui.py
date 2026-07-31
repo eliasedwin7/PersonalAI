@@ -272,7 +272,7 @@ def test_chat_tab_new_session_creates_and_lists_it(qtbot, chat_service, task_run
 
     assert tab.conversation.name == "my-topic"
     names = [tab.session_list.item(i).text() for i in range(tab.session_list.count())]
-    assert "my-topic" in names
+    assert any(name.startswith("my-topic") for name in names)
 
 
 def test_chat_tab_rename_session_updates_the_current_conversation(
@@ -336,18 +336,23 @@ def test_chat_tab_searches_message_content_across_text_sessions(qtbot, chat_serv
     assert tab.task_combo.currentText() == "code"
 
 
-def test_chat_tab_session_list_filters_by_task(qtbot, chat_service, task_runner):
-    """A 'vision' session must never show up under a text task's list -
-    see the comment in ChatTab._reload_sessions for why."""
+def test_chat_tab_sessions_exclude_voice_agent_and_vision_sessions(
+    qtbot, chat_service, task_runner
+):
     from personalai.ui.chat_tab import ChatTab
 
-    vision_conv = chat_service.store.load_or_create("vision", "vision")
-    chat_service.store.save(vision_conv)
+    chat_service.store.save(chat_service.store.load_or_create("scratch", "general"))
+    chat_service.store.save(chat_service.store.load_or_create("agent", "agent"))
+    chat_service.store.save(chat_service.store.load_or_create("voice", "voice"))
+    chat_service.store.save(chat_service.store.load_or_create("vision", "vision"))
 
     tab = ChatTab(chat_service, task_runner)
     qtbot.addWidget(tab)
     names = [tab.session_list.item(i).text() for i in range(tab.session_list.count())]
-    assert "vision" not in names
+    assert any(name.startswith("scratch") for name in names)
+    assert all("agent" not in name.casefold() for name in names)
+    assert all("voice" not in name.casefold() for name in names)
+    assert all("vision" not in name.casefold() for name in names)
 
 
 def test_chat_tab_delete_session_removes_it(qtbot, chat_service, task_runner, monkeypatch):
@@ -429,6 +434,27 @@ def test_voice_tab_speak_checkbox_disabled_when_speech_unavailable(
     tab = VoiceTab(chat_service, task_runner)
     qtbot.addWidget(tab)
     assert tab.speak_check.isEnabled() is False
+
+
+def test_voice_tab_has_its_own_sessions(qtbot, chat_service, task_runner, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    monkeypatch.setattr(voice_service, "is_recording_available", lambda: True)
+    monkeypatch.setattr(voice_service, "is_transcription_available", lambda: True)
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("voice-idea", True))
+
+    from personalai.ui.voice_tab import VoiceTab
+
+    chat_service.store.save(chat_service.store.load_or_create("chat-only", "general"))
+    tab = VoiceTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._new_session()
+
+    names = [tab.session_list.item(i).text() for i in range(tab.session_list.count())]
+    assert "voice" in names
+    assert "voice-idea" in names
+    assert "chat-only" not in names
+    assert tab.conversation.task == "voice"
 
 
 def test_voice_tab_full_turn_transcribes_replies_and_speaks(
@@ -1125,6 +1151,24 @@ def test_agent_tab_requires_a_workspace_before_sending(
     assert tab._sending is False
 
 
+def test_agent_tab_has_its_own_sessions(qtbot, chat_service, task_runner, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    from personalai.ui.agent_tab import AgentTab
+
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("agent-build", True))
+    chat_service.store.save(chat_service.store.load_or_create("chat-only", "general"))
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._new_session()
+
+    names = [tab.session_list.item(i).text() for i in range(tab.session_list.count())]
+    assert "agent" in names
+    assert "agent-build" in names
+    assert "chat-only" not in names
+    assert tab.conversation.task == "agent"
+
+
 def test_agent_tab_plan_mode_send_shows_final_reply_and_stays_readonly(
     qtbot, chat_service, task_runner, tmp_path
 ):
@@ -1202,7 +1246,7 @@ def test_agent_tab_inline_model_switcher_controls_agent_model(
 
     qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
     assert chat_service.client.calls[-1][1] == "mistral"
-    assert store.load().model_for("general") == "mistral"
+    assert store.load().model_for("agent") == "mistral"
 
 
 def test_agent_tab_filters_tool_call_bookkeeping_from_transcript(
