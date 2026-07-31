@@ -8,6 +8,7 @@ vision model about any image" tool.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -15,16 +16,24 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
     QPushButton,
+    QSplitter,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from personalai.core.conversation import Conversation
+from personalai.core.errors import PersonalAIError
 from personalai.services import vision_service
 from personalai.services.chat_service import VISION_TASK, ChatService
+from personalai.ui import transcript_view
 from personalai.ui.workers import TaskRunner
 
 PREVIEW_HEIGHT = 220
@@ -36,9 +45,46 @@ class CaptionTab(QWidget):
         self.chat_service = chat_service
         self.task_runner = task_runner
         self.image_path: Path | None = None
+        self.conversation: Conversation = chat_service.store.load_or_create(
+            VISION_TASK, VISION_TASK
+        )
+        self.chat_service.store.save(self.conversation)
         self._working = False
 
-        layout = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        shell = QSplitter(Qt.Orientation.Horizontal)
+        outer.addWidget(shell)
+
+        left = QWidget()
+        left.setObjectName("sessionPane")
+        left.setMinimumWidth(220)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(14, 16, 14, 14)
+        left_layout.setSpacing(10)
+        session_header = QHBoxLayout()
+        title = QLabel("Image sessions")
+        title.setObjectName("paneTitle")
+        session_header.addWidget(title)
+        session_header.addStretch(1)
+        new_btn = QPushButton("New")
+        new_btn.setObjectName("primaryButton")
+        new_btn.clicked.connect(self._new_session)
+        session_header.addWidget(new_btn)
+        left_layout.addLayout(session_header)
+        self.session_list = QListWidget()
+        self.session_list.itemClicked.connect(self._on_session_selected)
+        left_layout.addWidget(self.session_list, stretch=1)
+        rename_btn = QPushButton("Rename")
+        rename_btn.clicked.connect(self._rename_current_session)
+        left_layout.addWidget(rename_btn)
+        delete_btn = QPushButton("Delete")
+        delete_btn.clicked.connect(self._delete_current_session)
+        left_layout.addWidget(delete_btn)
+        shell.addWidget(left)
+
+        right = QWidget()
+        layout = QVBoxLayout(right)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
@@ -57,12 +103,6 @@ class CaptionTab(QWidget):
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.preview)
 
-        session_row = QHBoxLayout()
-        session_row.addWidget(QLabel("Session:"))
-        self.session_edit = QLineEdit(VISION_TASK)
-        session_row.addWidget(self.session_edit)
-        layout.addLayout(session_row)
-
         self.instruction_edit = QLineEdit()
         self.instruction_edit.setPlaceholderText(vision_service.DEFAULT_INSTRUCTION)
         layout.addWidget(self.instruction_edit)
@@ -72,9 +112,90 @@ class CaptionTab(QWidget):
         self.caption_btn.clicked.connect(self._caption)
         layout.addWidget(self.caption_btn)
 
-        self.output = QPlainTextEdit()
+        self.output = QTextEdit()
+        self.output.setObjectName("chatTranscript")
         self.output.setReadOnly(True)
         layout.addWidget(self.output, stretch=1)
+
+        shell.addWidget(right)
+        shell.setStretchFactor(0, 1)
+        shell.setStretchFactor(1, 4)
+        shell.setSizes([260, 1000])
+
+        self._reload_sessions()
+        self._render_transcript()
+
+    # ---- sessions ----
+
+    def _reload_sessions(self) -> None:
+        self.session_list.clear()
+        for name in self.chat_service.store.list_all():
+            conv = self.chat_service.store.load_or_create(name, VISION_TASK)
+            if conv.task == VISION_TASK:
+                item = QListWidgetItem(conv.name)
+                item.setData(Qt.ItemDataRole.UserRole, conv.name)
+                self.session_list.addItem(item)
+
+    def _on_session_selected(self, item: QListWidgetItem) -> None:
+        if self._working:
+            return
+        self._load_session(item.data(Qt.ItemDataRole.UserRole) or item.text())
+
+    def _load_session(self, name: str) -> None:
+        self.conversation = self.chat_service.store.load_or_create(name, VISION_TASK)
+        self._render_transcript()
+
+    def _new_session(self) -> None:
+        if self._working:
+            return
+        default = "image_" + datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        name, ok = QInputDialog.getText(self, "New image session", "Session name:", text=default)
+        if not ok or not name.strip():
+            return
+        self.conversation = self.chat_service.store.load_or_create(name.strip(), VISION_TASK)
+        self.chat_service.store.save(self.conversation)
+        self._reload_sessions()
+        self._render_transcript()
+
+    def _rename_current_session(self) -> None:
+        if self._working:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Rename image session", "New session name:", text=self.conversation.name
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            self.conversation = self.chat_service.store.rename(self.conversation.name, name.strip())
+        except PersonalAIError as exc:
+            QMessageBox.warning(self, "Rename image session", str(exc))
+            return
+        self._reload_sessions()
+        self._render_transcript()
+
+    def _delete_current_session(self) -> None:
+        if self._working:
+            return
+        if self.conversation.name == VISION_TASK and not self.conversation.messages:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete image session",
+            f"Delete image session '{self.conversation.name}'? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.chat_service.store.delete(self.conversation.name)
+        self.conversation = self.chat_service.store.load_or_create(VISION_TASK, VISION_TASK)
+        self.chat_service.store.save(self.conversation)
+        self._reload_sessions()
+        self._render_transcript()
+
+    def _render_transcript(self) -> None:
+        transcript_view.render_transcript(self.output, self.conversation)
+
+    # ---- image asking ----
 
     def _choose_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -98,32 +219,29 @@ class CaptionTab(QWidget):
         if self.image_path is None:
             self.output.setPlainText("Choose an image first.")
             return
-        session_name = self.session_edit.text().strip() or VISION_TASK
         instruction = self.instruction_edit.text().strip() or vision_service.DEFAULT_INSTRUCTION
-        conversation = self.chat_service.store.load_or_create(session_name, VISION_TASK)
 
         self._working = True
         self.caption_btn.setEnabled(False)
         self.output.clear()
 
         self.task_runner.submit(
-            self.chat_service.send_with_image, conversation, instruction, self.image_path,
+            self.chat_service.send_with_image, self.conversation, instruction, self.image_path,
             on_progress=self._on_token,
             on_result=self._on_done,
             on_error=self._on_error,
         )
 
     def _on_token(self, token: str) -> None:
-        cursor = self.output.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        cursor.insertText(token)
-        self.output.setTextCursor(cursor)
+        transcript_view.append_body(self.output, token)
 
     def _on_done(self, _reply: str) -> None:
+        self._render_transcript()
+        self._reload_sessions()
         self._working = False
         self.caption_btn.setEnabled(True)
 
     def _on_error(self, exc: BaseException) -> None:
-        self.output.appendPlainText(f"\n[error] {exc}")
+        transcript_view.append_message_block(self.output, "error", str(exc))
         self._working = False
         self.caption_btn.setEnabled(True)

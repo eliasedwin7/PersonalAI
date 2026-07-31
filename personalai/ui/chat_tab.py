@@ -51,6 +51,7 @@ from personalai.services.chat_service import TEXT_TASKS, ChatService
 from personalai.services.memory_service import add_approved_entries
 from personalai.ui import transcript_view
 from personalai.ui.icons import standard_icon
+from personalai.ui.model_picker import populate_model_combo, selected_model
 from personalai.ui.workers import TaskHandle, TaskRunner
 
 INPUT_MAX_HEIGHT = 90
@@ -120,6 +121,7 @@ class ChatTab(QWidget):
         self._memory_suggesting = False
         self._generation_started_at: float | None = None
         self._updating_model_combo = False
+        self._pulling_model: str | None = None
         self._available_models = self._load_available_models()
         self.setAcceptDrops(True)
 
@@ -193,6 +195,10 @@ class ChatTab(QWidget):
         self.refresh_model_btn.setToolTip("Refresh installed Ollama models.")
         self.refresh_model_btn.clicked.connect(self._refresh_available_models)
         top_row.addWidget(self.refresh_model_btn)
+        self.model_status = QLabel()
+        self.model_status.setObjectName("mutedLabel")
+        self.model_status.hide()
+        top_row.addWidget(self.model_status)
         self.deep_btn = QPushButton("Deep")
         self._set_button_icon(self.deep_btn, QStyle.StandardPixmap.SP_ArrowUp)
         self.deep_btn.setCheckable(True)
@@ -478,19 +484,19 @@ class ChatTab(QWidget):
     def _set_model_combo(self, current: str) -> None:
         self._updating_model_combo = True
         try:
-            items = list(self._available_models)
-            if current and current not in items:
-                items.insert(0, current)
-            self.model_combo.clear()
-            self.model_combo.addItems(items)
-            self.model_combo.setCurrentText(current)
+            populate_model_combo(
+                self.model_combo,
+                current,
+                self._available_models,
+                self.chat_service.config.recommended_chat_models(),
+            )
         finally:
             self._updating_model_combo = False
 
-    def _on_model_changed(self, model: str) -> None:
+    def _on_model_changed(self, _model: str) -> None:
         if self._updating_model_combo:
             return
-        model = model.strip()
+        model = selected_model(self.model_combo)
         if not model:
             return
         task = self.task_combo.currentText()
@@ -499,6 +505,50 @@ class ChatTab(QWidget):
             self.chat_service.config.fast_model = ""
         if self.config_store is not None:
             self.config_store.save(self.chat_service.config)
+        self._ensure_selected_model_available(model)
+
+    def _ensure_selected_model_available(self, model: str) -> None:
+        if self.chat_service.config.backend != "ollama":
+            return
+        if model in self._available_models or model not in self.chat_service.config.recommended_chat_models():
+            return
+        if self._pulling_model:
+            return
+        try:
+            from personalai.services.ollama_client import OllamaClient
+        except ImportError:
+            return
+        self._pulling_model = model
+        self.model_combo.setEnabled(False)
+        self.refresh_model_btn.setEnabled(False)
+        self.model_status.setText(f"Downloading {model}...")
+        self.model_status.show()
+        client = OllamaClient(
+            self.chat_service.config.ollama_url,
+            self.chat_service.config.unload_models_after_reply,
+        )
+        self.task_runner.submit(
+            client.pull_model, model,
+            on_result=lambda _result: self._model_pull_done(model),
+            on_error=self._model_pull_error,
+        )
+
+    def _model_pull_done(self, model: str) -> None:
+        self._pulling_model = None
+        self._available_models = self._load_available_models()
+        if model not in self._available_models:
+            self._available_models.append(model)
+        self.model_combo.setEnabled(True)
+        self.refresh_model_btn.setEnabled(True)
+        self.model_status.hide()
+        self._set_model_combo(model)
+
+    def _model_pull_error(self, exc: BaseException) -> None:
+        self._pulling_model = None
+        self.model_combo.setEnabled(True)
+        self.refresh_model_btn.setEnabled(True)
+        self.model_status.hide()
+        QMessageBox.warning(self, "Download model", str(exc))
 
     def _can_regenerate(self) -> bool:
         if self._sending or self.conversation is None or len(self.conversation.messages) < 2:

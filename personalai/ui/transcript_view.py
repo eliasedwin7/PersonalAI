@@ -104,7 +104,7 @@ def append_message_block(text_edit: QTextEdit, role: str, content: str, timestam
     table_format.setAlignment(
         Qt.AlignmentFlag.AlignRight if role == "user" else Qt.AlignmentFlag.AlignLeft
     )
-    table_format.setWidth(QTextLength(QTextLength.Type.PercentageLength, 78))
+    table_format.setWidth(QTextLength(QTextLength.Type.PercentageLength, _bubble_width(role)))
     table = cursor.insertTable(1, 1, table_format)
     cell_cursor = table.cellAt(0, 0).firstCursorPosition()
 
@@ -139,6 +139,14 @@ def _bubble_background(role: str) -> str:
     if role == "error":
         return "#2a151b"
     return "#151922"
+
+
+def _bubble_width(role: str) -> int:
+    if role == "user":
+        return 58
+    if role == "error":
+        return 70
+    return 72
 
 
 def _short_time(timestamp: str) -> str:

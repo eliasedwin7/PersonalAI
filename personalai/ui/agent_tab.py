@@ -46,6 +46,7 @@ from personalai.services.agent_service import Activity, AgentMode, AgentService
 from personalai.services.chat_service import ChatService
 from personalai.ui import transcript_view
 from personalai.ui.chat_tab import ChatInputEdit
+from personalai.ui.model_picker import populate_model_combo, selected_model
 from personalai.ui.workers import TaskRunner
 
 AGENT_SESSION = "agent"
@@ -84,6 +85,7 @@ class AgentTab(QWidget):
         self._active_mode: AgentMode | None = None
         self._last_plan_request: str | None = None
         self._updating_model_combo = False
+        self._pulling_model: str | None = None
         self._available_models = self._load_available_models()
 
         self._bridge = _AgentBridge()
@@ -143,9 +145,9 @@ class AgentTab(QWidget):
         self.mode_combo = QComboBox()
         for mode in AgentMode:
             self.mode_combo.addItem(MODE_LABELS[mode], mode.value)
-        self.mode_combo.setCurrentIndex(
-            self.mode_combo.findData(chat_service.config.agent_mode)
-        )
+        mode_index = self.mode_combo.findData(chat_service.config.agent_mode)
+        self.mode_combo.setCurrentIndex(max(mode_index, 0))
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         control_row.addWidget(self.mode_combo, stretch=1)
         control_row.addWidget(QLabel("Model:"))
         self.model_combo = QComboBox()
@@ -160,6 +162,10 @@ class AgentTab(QWidget):
         self.refresh_model_btn.setToolTip("Refresh installed Ollama models.")
         self.refresh_model_btn.clicked.connect(self._refresh_available_models)
         control_row.addWidget(self.refresh_model_btn)
+        self.model_status = QLabel()
+        self.model_status.setObjectName("mutedLabel")
+        self.model_status.hide()
+        control_row.addWidget(self.model_status)
         layout.addLayout(control_row)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -184,8 +190,9 @@ class AgentTab(QWidget):
         activity_layout.addWidget(self.activity_log)
         splitter.addWidget(activity_container)
 
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([360, 240])
         layout.addWidget(splitter, stretch=1)
 
         input_row = QHBoxLayout()
@@ -196,9 +203,14 @@ class AgentTab(QWidget):
         self.input_edit.setMaximumHeight(90)
         self.input_edit.submitted.connect(self._send)
         input_row.addWidget(self.input_edit, stretch=1)
+        self.turn_status = QLabel("")
+        self.turn_status.setObjectName("mutedLabel")
+        self.turn_status.setVisible(False)
+        input_row.addWidget(self.turn_status)
         self.do_it_btn = QPushButton("Do it")
         self.do_it_btn.setObjectName("primaryButton")
         self.do_it_btn.setEnabled(False)
+        self.do_it_btn.setVisible(False)
         self.do_it_btn.setToolTip("Run the latest Plan response once in Auto-accept mode.")
         self.do_it_btn.clicked.connect(self._do_latest_plan)
         input_row.addWidget(self.do_it_btn)
@@ -241,6 +253,7 @@ class AgentTab(QWidget):
         self.activity_log.clear()
         self._last_plan_request = None
         self.do_it_btn.setEnabled(False)
+        self.do_it_btn.setVisible(False)
         self._render_transcript()
 
     def _new_session(self) -> None:
@@ -254,6 +267,7 @@ class AgentTab(QWidget):
         self.activity_log.clear()
         self._last_plan_request = None
         self.do_it_btn.setEnabled(False)
+        self.do_it_btn.setVisible(False)
         self._reload_sessions()
         self._render_transcript()
 
@@ -287,6 +301,9 @@ class AgentTab(QWidget):
         self.conversation = self.chat_service.store.load_or_create(AGENT_SESSION, AGENT_TASK)
         self._ensure_agent_task(self.conversation)
         self.activity_log.clear()
+        self._last_plan_request = None
+        self.do_it_btn.setEnabled(False)
+        self.do_it_btn.setVisible(False)
         self._reload_sessions()
         self._render_transcript()
 
@@ -299,7 +316,18 @@ class AgentTab(QWidget):
                 self.config_store.save(self.chat_service.config)
 
     def _current_mode(self) -> AgentMode:
-        return AgentMode(self.mode_combo.currentData())
+        try:
+            return AgentMode(self.mode_combo.currentData())
+        except (TypeError, ValueError):
+            return AgentMode.PLAN
+
+    def _on_mode_changed(self, _index: int | None = None) -> None:
+        self.chat_service.config.agent_mode = self._current_mode().value
+        if self.config_store is not None:
+            self.config_store.save(self.chat_service.config)
+        if self._current_mode() is not AgentMode.PLAN:
+            self.do_it_btn.setEnabled(False)
+            self.do_it_btn.setVisible(False)
 
     def _load_available_models(self) -> list[str]:
         try:
@@ -317,25 +345,69 @@ class AgentTab(QWidget):
         current = self.chat_service.config.model_for(AGENT_TASK)
         self._updating_model_combo = True
         try:
-            items = list(self._available_models)
-            if current and current not in items:
-                items.insert(0, current)
-            self.model_combo.clear()
-            self.model_combo.addItems(items)
-            self.model_combo.setCurrentText(current)
+            populate_model_combo(
+                self.model_combo,
+                current,
+                self._available_models,
+                self.chat_service.config.recommended_chat_models(),
+            )
         finally:
             self._updating_model_combo = False
 
-    def _on_model_changed(self, model: str) -> None:
+    def _on_model_changed(self, _model: str) -> None:
         if self._updating_model_combo:
             return
-        model = model.strip()
+        model = selected_model(self.model_combo)
         if not model:
             return
         self.chat_service.config.models[AGENT_TASK] = model
         self.chat_service.config.fast_model = ""
         if self.config_store is not None:
             self.config_store.save(self.chat_service.config)
+        self._ensure_selected_model_available(model)
+
+    def _ensure_selected_model_available(self, model: str) -> None:
+        if self.chat_service.config.backend != "ollama":
+            return
+        if model in self._available_models or model not in self.chat_service.config.recommended_chat_models():
+            return
+        if self._pulling_model:
+            return
+        try:
+            from personalai.services.ollama_client import OllamaClient
+        except ImportError:
+            return
+        self._pulling_model = model
+        self.model_combo.setEnabled(False)
+        self.refresh_model_btn.setEnabled(False)
+        self.model_status.setText(f"Downloading {model}...")
+        self.model_status.show()
+        client = OllamaClient(
+            self.chat_service.config.ollama_url,
+            self.chat_service.config.unload_models_after_reply,
+        )
+        self.task_runner.submit(
+            client.pull_model, model,
+            on_result=lambda _result: self._model_pull_done(model),
+            on_error=self._model_pull_error,
+        )
+
+    def _model_pull_done(self, model: str) -> None:
+        self._pulling_model = None
+        self._available_models = self._load_available_models()
+        if model not in self._available_models:
+            self._available_models.append(model)
+        self.model_combo.setEnabled(True)
+        self.refresh_model_btn.setEnabled(True)
+        self.model_status.hide()
+        self._update_model_combo()
+
+    def _model_pull_error(self, exc: BaseException) -> None:
+        self._pulling_model = None
+        self.model_combo.setEnabled(True)
+        self.refresh_model_btn.setEnabled(True)
+        self.model_status.hide()
+        QMessageBox.warning(self, "Download model", str(exc))
 
     # ---- transcript rendering ----
     #
@@ -362,6 +434,8 @@ class AgentTab(QWidget):
 
     def _on_activity(self, activity: Activity) -> None:
         marker = "applied" if activity.applied else "proposed/skipped"
+        self.turn_status.setText(f"{activity.tool} - {marker}")
+        self.turn_status.setVisible(True)
         self.activity_log.appendPlainText(
             f"[{activity.tool} - {marker}] {activity.args}\n{activity.result}\n"
         )
@@ -427,7 +501,12 @@ class AgentTab(QWidget):
         self._sending = True
         self._active_mode = mode
         self.do_it_btn.setEnabled(False)
+        self.do_it_btn.setVisible(False)
+        self.turn_status.setText("Planning..." if mode is AgentMode.PLAN else "Running agent...")
+        self.turn_status.setVisible(True)
+        self.input_edit.setEnabled(False)
         self.send_btn.setEnabled(False)
+        self.send_btn.setText("Working...")
         if mode is AgentMode.PLAN:
             self._last_plan_request = text
 
@@ -449,10 +528,13 @@ class AgentTab(QWidget):
             self._last_plan_request = None
         self._active_mode = None
         self._sending = False
+        self.turn_status.setVisible(False)
+        self.input_edit.setEnabled(True)
         self.send_btn.setEnabled(True)
-        self.do_it_btn.setEnabled(
-            completed_mode is AgentMode.PLAN and bool(self._last_plan_request)
-        )
+        self.send_btn.setText("Send")
+        plan_ready = completed_mode is AgentMode.PLAN and bool(self._last_plan_request)
+        self.do_it_btn.setEnabled(plan_ready)
+        self.do_it_btn.setVisible(plan_ready)
 
     def _on_error(self, exc: BaseException) -> None:
         if isinstance(exc, PersonalAIError):
@@ -463,5 +545,9 @@ class AgentTab(QWidget):
             self._last_plan_request = None
         self._active_mode = None
         self._sending = False
+        self.turn_status.setVisible(False)
+        self.input_edit.setEnabled(True)
         self.send_btn.setEnabled(True)
+        self.send_btn.setText("Send")
         self.do_it_btn.setEnabled(False)
+        self.do_it_btn.setVisible(False)

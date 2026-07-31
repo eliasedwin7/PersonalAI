@@ -38,20 +38,21 @@ from personalai.core.config import (
 from personalai.core.errors import PersonalAIError
 from personalai.services.chat_service import SYSTEM_PROMPTS, TEXT_TASKS, VISION_TASK
 from personalai.services.voice_service import WHISPER_MODEL_SIZES
+from personalai.ui.model_picker import populate_model_combo, selected_model
 from personalai.ui.workers import TaskRunner
 
 PROMPT_TASKS = (*TEXT_TASKS, VISION_TASK)
 
 
-def _model_combo(current_value: str, pulled_models: list[str]) -> QComboBox:
+def _model_combo(
+    current_value: str,
+    pulled_models: list[str],
+    recommended_models: list[str] | None = None,
+) -> QComboBox:
     """An editable picker that also permits remote/API model names."""
     combo = QComboBox()
     combo.setEditable(True)
-    items = list(pulled_models)
-    if current_value not in items:
-        items.insert(0, current_value)
-    combo.addItems(items)
-    combo.setCurrentText(current_value)
+    populate_model_combo(combo, current_value, pulled_models, recommended_models or [])
     return combo
 
 
@@ -142,9 +143,10 @@ class SettingsDialog(QDialog):
         form.addRow("Local AI setup:", setup)
 
         pulled_models = self._pulled_ollama_models(config)
-        self.general_edit = _model_combo(config.model_for("general"), pulled_models)
-        self.story_edit = _model_combo(config.model_for("story"), pulled_models)
-        self.code_edit = _model_combo(config.model_for("code"), pulled_models)
+        recommended_models = self._selected_recommended_chat_models()
+        self.general_edit = _model_combo(config.model_for("general"), pulled_models, recommended_models)
+        self.story_edit = _model_combo(config.model_for("story"), pulled_models, recommended_models)
+        self.code_edit = _model_combo(config.model_for("code"), pulled_models, recommended_models)
         self.vision_edit = _model_combo(config.model_for("vision"), pulled_models)
         form.addRow("Chat model:", self.general_edit)
         form.addRow("Writing model:", self.story_edit)
@@ -400,14 +402,35 @@ class SettingsDialog(QDialog):
 
     def _apply_local_profile(self) -> None:
         profile = LOCAL_MODEL_PROFILES[self.profile_combo.currentData()]
-        self.general_edit.setCurrentText(profile["models"]["general"])
-        self.story_edit.setCurrentText(profile["models"]["story"])
-        self.code_edit.setCurrentText(profile["models"]["code"])
-        self.vision_edit.setCurrentText(profile["models"]["vision"])
+        installed_models = [
+            self.installed_models.item(index).text()
+            for index in range(self.installed_models.count())
+            if self.installed_models.item(index).text() != "No local Ollama models found."
+        ]
+        recommended_models = self._selected_recommended_chat_models()
+        populate_model_combo(
+            self.general_edit, profile["models"]["general"], installed_models, recommended_models
+        )
+        populate_model_combo(
+            self.story_edit, profile["models"]["story"], installed_models, recommended_models
+        )
+        populate_model_combo(
+            self.code_edit, profile["models"]["code"], installed_models, recommended_models
+        )
+        populate_model_combo(self.vision_edit, profile["models"]["vision"], installed_models, [])
         self.routing_check.setChecked(True)
         self.unload_models_check.setChecked(True)
         self.model_action_status.setText("Profile applied. Save Settings to keep it.")
         self.model_action_status.show()
+
+    def _selected_recommended_chat_models(self) -> list[str]:
+        profile = LOCAL_MODEL_PROFILES[self.profile_combo.currentData()]
+        names = profile.get("chat_models", [
+            *profile["models"].values(),
+            profile["fast_model"],
+            profile["deep_model"],
+        ])
+        return [model for model in dict.fromkeys(names) if model][:5]
 
     def _install_local_profile(self) -> None:
         profile = LOCAL_MODEL_PROFILES[self.profile_combo.currentData()]
@@ -456,11 +479,10 @@ class SettingsDialog(QDialog):
     def _refresh_installed_models(self) -> None:
         models = self._ollama_client().list_models()
         self._set_installed_models(models)
-        for combo in (self.general_edit, self.story_edit, self.code_edit, self.vision_edit):
-            current = combo.currentText()
-            combo.clear()
-            combo.addItems(models)
-            combo.setCurrentText(current)
+        recommended_models = self._selected_recommended_chat_models()
+        for combo in (self.general_edit, self.story_edit, self.code_edit):
+            populate_model_combo(combo, selected_model(combo), models, recommended_models)
+        populate_model_combo(self.vision_edit, selected_model(self.vision_edit), models, [])
 
     def _pull_model(self) -> None:
         model = self.pull_model_edit.text().strip()
@@ -561,10 +583,10 @@ class SettingsDialog(QDialog):
         config.openai_base_url = self.openai_base_edit.text().strip() or config.openai_base_url
         config.airllm_max_new_tokens = self.airllm_tokens_spin.value()
         config.forge_url = self.forge_url_edit.text().strip() or config.forge_url
-        config.models["general"] = self.general_edit.currentText().strip() or config.models["general"]
-        config.models["story"] = self.story_edit.currentText().strip() or config.models["story"]
-        config.models["code"] = self.code_edit.currentText().strip() or config.models["code"]
-        config.models["vision"] = self.vision_edit.currentText().strip() or config.models["vision"]
+        config.models["general"] = selected_model(self.general_edit) or config.models["general"]
+        config.models["story"] = selected_model(self.story_edit) or config.models["story"]
+        config.models["code"] = selected_model(self.code_edit) or config.models["code"]
+        config.models["vision"] = selected_model(self.vision_edit) or config.models["vision"]
         config.context_char_limit = self.limit_spin.value()
         config.history_char_limit = self.history_limit_spin.value()
         config.mic_device = None
@@ -577,10 +599,10 @@ class SettingsDialog(QDialog):
         config.assistant_memory = self.memory_edit.toPlainText().strip()
         config.memory_entries = self._memory_entries
         config.apply_local_profile(self.profile_combo.currentData())
-        config.models["general"] = self.general_edit.currentText().strip() or config.models["general"]
-        config.models["story"] = self.story_edit.currentText().strip() or config.models["story"]
-        config.models["code"] = self.code_edit.currentText().strip() or config.models["code"]
-        config.models["vision"] = self.vision_edit.currentText().strip() or config.models["vision"]
+        config.models["general"] = selected_model(self.general_edit) or config.models["general"]
+        config.models["story"] = selected_model(self.story_edit) or config.models["story"]
+        config.models["code"] = selected_model(self.code_edit) or config.models["code"]
+        config.models["vision"] = selected_model(self.vision_edit) or config.models["vision"]
         config.global_hotkey_enabled = self.global_hotkey_check.isChecked()
         config.agent_verify_changes = self.agent_verify_check.isChecked()
         config.intelligent_routing = self.routing_check.isChecked()

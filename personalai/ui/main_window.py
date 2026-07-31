@@ -96,18 +96,29 @@ class MainWindow(QMainWindow):
         shell_layout.setContentsMargins(0, 0, 0, 0)
         shell_layout.setSpacing(0)
 
-        side_bar = QWidget()
-        side_bar.setObjectName("sideBar")
-        side_bar.setFixedWidth(224)
-        side_layout = QVBoxLayout(side_bar)
+        self._navigation_collapsed = False
+        self.side_bar = QWidget()
+        self.side_bar.setObjectName("sideBar")
+        self.side_bar.setFixedWidth(224)
+        side_layout = QVBoxLayout(self.side_bar)
         side_layout.setContentsMargins(14, 16, 14, 14)
         side_layout.setSpacing(12)
-        brand = QLabel("Nexus")
-        brand.setObjectName("brand")
-        side_layout.addWidget(brand)
-        subtitle = QLabel("Local AI workbench")
-        subtitle.setObjectName("sideSubtitle")
-        side_layout.addWidget(subtitle)
+
+        brand_row = QHBoxLayout()
+        self.brand_label = QLabel("Nexus")
+        self.brand_label.setObjectName("brand")
+        brand_row.addWidget(self.brand_label)
+        brand_row.addStretch(1)
+        self.navigation_toggle_btn = QPushButton("‹")
+        self.navigation_toggle_btn.setFixedWidth(34)
+        self.navigation_toggle_btn.setToolTip("Minimize tabs")
+        self.navigation_toggle_btn.clicked.connect(self._toggle_navigation)
+        brand_row.addWidget(self.navigation_toggle_btn)
+        side_layout.addLayout(brand_row)
+
+        self.side_subtitle = QLabel("Local AI workbench")
+        self.side_subtitle.setObjectName("sideSubtitle")
+        side_layout.addWidget(self.side_subtitle)
 
         self.navigation = QListWidget()
         self.navigation.setObjectName("navigationList")
@@ -126,6 +137,7 @@ class MainWindow(QMainWindow):
             if icon is not None:
                 item.setIcon(icon)
             item.setData(Qt.ItemDataRole.UserRole, label)
+            item.setToolTip(label)
             self.navigation.addItem(item)
         self.navigation.currentRowChanged.connect(self._select_page)
         side_layout.addWidget(self.navigation, stretch=1)
@@ -133,14 +145,14 @@ class MainWindow(QMainWindow):
         self.connection_label = QLabel("Checking connection")
         self.connection_label.setObjectName("connectionStatus")
         side_layout.addWidget(self.connection_label)
-        settings_button = QPushButton("Settings")
-        settings_button.setObjectName("sideButton")
+        self.settings_button = QPushButton("Settings")
+        self.settings_button.setObjectName("sideButton")
         icon = standard_icon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         if icon is not None:
-            settings_button.setIcon(icon)
-        settings_button.clicked.connect(self._open_settings)
-        side_layout.addWidget(settings_button)
-        shell_layout.addWidget(side_bar)
+            self.settings_button.setIcon(icon)
+        self.settings_button.clicked.connect(self._open_settings)
+        side_layout.addWidget(self.settings_button)
+        shell_layout.addWidget(self.side_bar)
 
         self.pages = QStackedWidget()
         self.pages.setObjectName("pageStack")
@@ -166,6 +178,19 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
         self.pages.setCurrentIndex(index)
+
+    def _toggle_navigation(self) -> None:
+        self._navigation_collapsed = not self._navigation_collapsed
+        collapsed = self._navigation_collapsed
+        self.side_bar.setFixedWidth(64 if collapsed else 224)
+        self.brand_label.setVisible(not collapsed)
+        self.side_subtitle.setVisible(not collapsed)
+        self.connection_label.setVisible(not collapsed)
+        self.settings_button.setText("" if collapsed else "Settings")
+        self.navigation_toggle_btn.setText("›" if collapsed else "‹")
+        self.navigation_toggle_btn.setToolTip("Expand tabs" if collapsed else "Minimize tabs")
+        for index, label in enumerate(self._page_labels):
+            self.navigation.item(index).setText("" if collapsed else label)
 
     def select_page(self, label: str) -> bool:
         for index, page_label in enumerate(self._page_labels):

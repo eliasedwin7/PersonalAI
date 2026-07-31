@@ -40,6 +40,13 @@ DEFAULT_MODELS = {
 LOCAL_MODEL_PROFILES = {
     "laptop": {
         "label": "Laptop (16 GB RAM / CPU-friendly)",
+        "chat_models": [
+            "qwen3:1.7b",
+            "llama3.2:3b",
+            "qwen3:4b",
+            "gemma3:4b",
+            "qwen3:8b",
+        ],
         "models": {
             "general": "qwen3:4b",
             "story": "qwen3:4b",
@@ -52,6 +59,13 @@ LOCAL_MODEL_PROFILES = {
     },
     "8gb": {
         "label": "8 GB GPU (balanced)",
+        "chat_models": [
+            "llama3.2:3b",
+            "qwen3:4b",
+            "gemma3:4b",
+            "qwen3:8b",
+            "qwen3:14b",
+        ],
         "models": {
             "general": "qwen3:8b",
             "story": "qwen3:8b",
@@ -64,6 +78,13 @@ LOCAL_MODEL_PROFILES = {
     },
     "16gb": {
         "label": "16 GB GPU shared with Forge / ComfyUI",
+        "chat_models": [
+            "qwen3:4b",
+            "qwen3:8b",
+            "gemma3:12b",
+            "qwen3:14b",
+            "gemma3:4b",
+        ],
         "models": {
             "general": "qwen3:8b",
             "story": "qwen3:8b",
@@ -193,6 +214,15 @@ class Config:
             profile["embedding_model"],
         ]
         return list(dict.fromkeys(names))
+
+    def recommended_chat_models(self) -> list[str]:
+        profile = LOCAL_MODEL_PROFILES.get(self.local_model_profile, LOCAL_MODEL_PROFILES["laptop"])
+        names = profile.get("chat_models", [
+            *profile["models"].values(),
+            profile["fast_model"],
+            profile["deep_model"],
+        ])
+        return [model for model in dict.fromkeys(names) if model][:5]
 
 
 class ConfigStore:

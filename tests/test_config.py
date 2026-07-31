@@ -28,6 +28,28 @@ def test_shared_gpu_profile_keeps_a_deep_model_on_demand():
     assert "qwen3:14b" in config.recommended_local_models()
 
 
+def test_profiles_expose_five_chat_model_recommendations():
+    config = Config()
+
+    assert config.recommended_chat_models() == [
+        "qwen3:1.7b",
+        "llama3.2:3b",
+        "qwen3:4b",
+        "gemma3:4b",
+        "qwen3:8b",
+    ]
+
+    config.apply_local_profile("16gb")
+
+    assert config.recommended_chat_models() == [
+        "qwen3:4b",
+        "qwen3:8b",
+        "gemma3:12b",
+        "qwen3:14b",
+        "gemma3:4b",
+    ]
+
+
 def test_round_trip(tmp_path):
     store = ConfigStore(tmp_path / "config.json")
     config = store.load()

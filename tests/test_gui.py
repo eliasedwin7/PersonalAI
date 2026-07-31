@@ -260,6 +260,47 @@ def test_chat_tab_inline_model_switcher_saves_current_task_model(
     assert reloaded.fast_model == ""
 
 
+def test_chat_tab_model_switcher_shows_profile_recommendations(
+    qtbot, chat_service, task_runner, monkeypatch
+):
+    from personalai.services.ollama_client import OllamaClient
+    from personalai.ui.chat_tab import ChatTab
+
+    monkeypatch.setattr(OllamaClient, "list_models", lambda self: [])
+
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    labels = [tab.model_combo.itemText(index) for index in range(tab.model_combo.count())]
+    assert "qwen3:1.7b [download]" in labels
+    assert "llama3.2:3b [download]" in labels
+    assert "qwen3:4b [download]" in labels
+    assert "gemma3:4b [download]" in labels
+    assert "qwen3:8b [download]" in labels
+
+
+def test_chat_tab_downloads_missing_recommended_model_when_selected(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from personalai.core.config import ConfigStore
+    from personalai.services.ollama_client import OllamaClient
+    from personalai.ui.chat_tab import ChatTab
+
+    pulled = []
+    monkeypatch.setattr(OllamaClient, "list_models", lambda self: [])
+    monkeypatch.setattr(OllamaClient, "pull_model", lambda self, model: pulled.append(model))
+    store = ConfigStore(tmp_path / "config.json")
+
+    tab = ChatTab(chat_service, task_runner, store)
+    qtbot.addWidget(tab)
+
+    tab.model_combo.setCurrentText("qwen3:4b [download]")
+
+    qtbot.waitUntil(lambda: pulled == ["qwen3:4b"], timeout=5000)
+    qtbot.waitUntil(lambda: tab.model_combo.isEnabled(), timeout=5000)
+    assert store.load().model_for("general") == "qwen3:4b"
+
+
 def test_chat_tab_new_session_creates_and_lists_it(qtbot, chat_service, task_runner, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
 
@@ -716,8 +757,28 @@ def test_caption_tab_constructs(qtbot, chat_service, task_runner):
 
     tab = CaptionTab(chat_service, task_runner)
     qtbot.addWidget(tab)
-    assert tab.session_edit.text() == "vision"
+    names = [tab.session_list.item(i).text() for i in range(tab.session_list.count())]
+    assert "vision" in names
+    assert tab.conversation.name == "vision"
     assert tab.image_path is None
+
+
+def test_caption_tab_has_its_own_image_sessions(qtbot, chat_service, task_runner, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    from personalai.ui.caption_tab import CaptionTab
+
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("image-ideas", True))
+    chat_service.store.save(chat_service.store.load_or_create("chat-only", "general"))
+    tab = CaptionTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab._new_session()
+
+    names = [tab.session_list.item(i).text() for i in range(tab.session_list.count())]
+    assert "vision" in names
+    assert "image-ideas" in names
+    assert "chat-only" not in names
+    assert tab.conversation.task == "vision"
 
 
 def test_caption_tab_requires_image_first(qtbot, chat_service, task_runner):
@@ -1098,6 +1159,8 @@ def test_agent_tab_constructs_with_defaults(qtbot, chat_service, task_runner):
     qtbot.addWidget(tab)
     assert tab.workspace_edit.text() == ""
     assert tab._current_mode().value == "plan"
+    assert tab.do_it_btn.isHidden()
+    assert tab.turn_status.isHidden()
 
 
 def test_system_tab_shows_onboarding_checklist(qtbot, chat_service, task_runner, tmp_path):
@@ -1190,7 +1253,9 @@ def test_agent_tab_plan_mode_send_shows_final_reply_and_stays_readonly(
                     timeout=5000)
     assert "what would you do?" in tab.transcript.toPlainText()
     assert list(workspace.iterdir()) == []
+    assert not tab.do_it_btn.isHidden()
     assert tab.do_it_btn.isEnabled() is True
+    assert tab.turn_status.isHidden()
 
 
 def test_agent_tab_do_it_runs_latest_plan_once_in_auto_accept(
@@ -1214,7 +1279,10 @@ def test_agent_tab_do_it_runs_latest_plan_once_in_auto_accept(
     tab.workspace_edit.setText(str(workspace))
     tab.input_edit.setPlainText("create hello.py")
     tab._send()
-    qtbot.waitUntil(lambda: tab.do_it_btn.isEnabled(), timeout=5000)
+    qtbot.waitUntil(
+        lambda: not tab.do_it_btn.isHidden() and tab.do_it_btn.isEnabled(),
+        timeout=5000,
+    )
 
     tab.do_it_btn.click()
     qtbot.waitUntil(lambda: not tab._sending and "Created it." in tab.transcript.toPlainText(),
@@ -1223,6 +1291,41 @@ def test_agent_tab_do_it_runs_latest_plan_once_in_auto_accept(
     assert "Do it: create hello.py" in tab.transcript.toPlainText()
     assert "AUTO-ACCEPT mode" in calls[-1][0][0]["content"]
     assert tab.do_it_btn.isEnabled() is False
+    assert tab.do_it_btn.isHidden()
+
+
+def test_agent_tab_shows_progress_while_turn_is_running(
+    qtbot, chat_service, task_runner, tmp_path
+):
+    from personalai.ui.agent_tab import AgentTab
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    release = threading.Event()
+
+    def slow_chat(messages, model, on_token=None, images=None):
+        release.wait(timeout=2)
+        return "Plan ready."
+
+    chat_service.client.chat = slow_chat
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.workspace_edit.setText(str(workspace))
+    tab.input_edit.setPlainText("create hello.py")
+    tab._send()
+
+    qtbot.waitUntil(lambda: tab._sending, timeout=5000)
+    assert not tab.turn_status.isHidden()
+    assert tab.turn_status.text() == "Planning..."
+    assert tab.send_btn.text() == "Working..."
+    assert tab.input_edit.isEnabled() is False
+
+    release.set()
+    qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
+    assert tab.turn_status.isHidden()
+    assert tab.send_btn.text() == "Send"
+    assert tab.input_edit.isEnabled() is True
 
 
 def test_agent_tab_inline_model_switcher_controls_agent_model(
@@ -1247,6 +1350,28 @@ def test_agent_tab_inline_model_switcher_controls_agent_model(
     qtbot.waitUntil(lambda: not tab._sending, timeout=5000)
     assert chat_service.client.calls[-1][1] == "mistral"
     assert store.load().model_for("agent") == "mistral"
+
+
+def test_agent_tab_downloads_missing_recommended_model_when_selected(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from personalai.core.config import ConfigStore
+    from personalai.services.ollama_client import OllamaClient
+    from personalai.ui.agent_tab import AgentTab
+
+    pulled = []
+    monkeypatch.setattr(OllamaClient, "list_models", lambda self: [])
+    monkeypatch.setattr(OllamaClient, "pull_model", lambda self, model: pulled.append(model))
+    store = ConfigStore(tmp_path / "config.json")
+
+    tab = AgentTab(chat_service, task_runner, store)
+    qtbot.addWidget(tab)
+
+    tab.model_combo.setCurrentText("qwen3:4b [download]")
+
+    qtbot.waitUntil(lambda: pulled == ["qwen3:4b"], timeout=5000)
+    qtbot.waitUntil(lambda: tab.model_combo.isEnabled(), timeout=5000)
+    assert store.load().model_for("agent") == "qwen3:4b"
 
 
 def test_agent_tab_filters_tool_call_bookkeeping_from_transcript(
