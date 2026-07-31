@@ -26,6 +26,7 @@ from personalai.services.agent_service import (
     _tool_search_files,
     _tool_write_file,
     parse_tool_call,
+    parse_tool_calls,
 )
 from personalai.services.chat_service import ChatService
 
@@ -218,6 +219,22 @@ def testparse_tool_call_defaults_missing_args_to_empty_dict():
     assert parse_tool_call('{"tool": "list_dir"}') == ("list_dir", {})
 
 
+def testparse_tool_calls_accepts_one_json_object_per_line():
+    reply = "\n".join([
+        _tool_call_json("write_file", path="hello.py", content="print('hi')"),
+        _tool_call_json("run_command", command="python hello.py"),
+    ])
+
+    assert parse_tool_calls(reply) == [
+        ("write_file", {"path": "hello.py", "content": "print('hi')"}),
+        ("run_command", {"command": "python hello.py"}),
+    ]
+
+
+def testparse_tool_calls_ignores_mixed_prose_and_json():
+    assert parse_tool_calls('First I will do this:\n{"tool": "list_dir", "args": {}}') == []
+
+
 # ---- mode gating via run_turn ----
 
 def test_plan_mode_never_writes_to_disk(tmp_path):
@@ -254,6 +271,31 @@ def test_plan_mode_never_runs_commands(tmp_path):
 
     agent.run_turn(conv, "run something", workspace, AgentMode.PLAN)
 
+    assert not (workspace / "marker.txt").exists()
+
+
+def test_plan_mode_handles_multiple_tool_calls_in_one_reply(tmp_path):
+    replies = [
+        "\n".join([
+            _tool_call_json("write_file", path="new.txt", content="should not appear"),
+            _tool_call_json("run_command", command="echo should-not-run > marker.txt"),
+        ]),
+        "Plan ready.",
+    ]
+    agent, _service = _make_service(replies, tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    from personalai.core.conversation import Conversation
+    conv = Conversation(name="agent", task="general")
+
+    activities: list[Activity] = []
+    reply = agent.run_turn(conv, "create and run", workspace, AgentMode.PLAN,
+                           on_activity=activities.append)
+
+    assert reply == "Plan ready."
+    assert [activity.tool for activity in activities] == ["write_file", "run_command"]
+    assert all(activity.applied is False for activity in activities)
+    assert not (workspace / "new.txt").exists()
     assert not (workspace / "marker.txt").exists()
 
 

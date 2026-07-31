@@ -298,6 +298,25 @@ def parse_tool_call(reply: str) -> tuple[str, dict] | None:
     return data["tool"], data.get("args") or {}
 
 
+def parse_tool_calls(reply: str) -> list[tuple[str, dict]]:
+    """Accept either one tool JSON object or several JSON objects, one
+    per non-empty line. Some local models emit a batch of tool calls even
+    when prompted for one-at-a-time actions; treating those lines as tool
+    calls keeps raw JSON out of the human transcript and puts it in
+    Activity where it belongs.
+    """
+    parsed = parse_tool_call(reply)
+    if parsed is not None:
+        return [parsed]
+    lines = [line.strip() for line in reply.strip().splitlines() if line.strip()]
+    if len(lines) < 2:
+        return []
+    parsed_lines = [parse_tool_call(line) for line in lines]
+    if any(item is None for item in parsed_lines):
+        return []
+    return [item for item in parsed_lines if item is not None]
+
+
 @dataclass
 class AgentService:
     chat_service: ChatService
@@ -329,8 +348,8 @@ class AgentService:
             reply = self.chat_service.client.chat(messages, model, on_token=on_token)
             conversation.append("assistant", reply)
 
-            parsed = parse_tool_call(reply)
-            if parsed is None:
+            parsed_calls = parse_tool_calls(reply)
+            if not parsed_calls:
                 if self.chat_service.config.agent_verify_changes and applied_activities:
                     verification = self._verify(applied_activities, workspace, model)
                     if on_activity is not None:
@@ -340,14 +359,14 @@ class AgentService:
                 self.chat_service.store.save(conversation)
                 return reply
 
-            tool_name, tool_args = parsed
-            result_text, applied = self._execute(tool_name, tool_args, workspace, mode, on_confirm)
-            if on_activity is not None:
-                on_activity(Activity(tool=tool_name, args=tool_args,
-                                     result=result_text, applied=applied))
-            if applied and tool_name in MUTATING_TOOLS:
-                applied_activities.append(Activity(tool_name, tool_args, result_text, True))
-            conversation.append("user", f"{TOOL_RESULT_PREFIX}{tool_name}]\n{result_text}")
+            for tool_name, tool_args in parsed_calls:
+                result_text, applied = self._execute(tool_name, tool_args, workspace, mode, on_confirm)
+                if on_activity is not None:
+                    on_activity(Activity(tool=tool_name, args=tool_args,
+                                         result=result_text, applied=applied))
+                if applied and tool_name in MUTATING_TOOLS:
+                    applied_activities.append(Activity(tool_name, tool_args, result_text, True))
+                conversation.append("user", f"{TOOL_RESULT_PREFIX}{tool_name}]\n{result_text}")
 
         self.chat_service.store.save(conversation)
         return (

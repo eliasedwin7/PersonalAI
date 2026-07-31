@@ -1519,6 +1519,42 @@ def test_agent_tab_filters_tool_call_bookkeeping_from_transcript(
     assert "list_dir" in tab.activity_log.toPlainText()
 
 
+def test_agent_tab_moves_multi_tool_call_reply_into_activity(
+    qtbot, chat_service, task_runner, tmp_path
+):
+    from personalai.ui.agent_tab import AgentTab
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    replies = iter([
+        (
+            '{"tool": "write_file", "args": {"path": "hello.py", "content": "print(123)"}}\n'
+            '{"tool": "run_command", "args": {"command": "python hello.py"}}'
+        ),
+        "Review the proposed actions, then press Do it to apply them.",
+    ])
+    chat_service.client.chat = lambda messages, model, on_token=None, images=None: next(replies)
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.workspace_edit.setText(str(workspace))
+    tab.input_edit.setPlainText("create hello.py and run it")
+    tab._send()
+
+    qtbot.waitUntil(
+        lambda: "Review the proposed actions" in tab.transcript.toPlainText(),
+        timeout=5000,
+    )
+    transcript = tab.transcript.toPlainText()
+    activity = tab.activity_log.toPlainText()
+    assert '"tool": "write_file"' not in transcript
+    assert '"tool": "run_command"' not in transcript
+    assert "Proposed: write_file hello.py" in activity
+    assert "Proposed: run_command python hello.py" in activity
+    assert "Planning..." in activity
+    assert "Done." in activity
+
+
 def test_image_tab_constructs_offline(qtbot, chat_service, task_runner):
     from personalai.ui.image_tab import ImageTab
 

@@ -200,7 +200,7 @@ class AgentTab(QWidget):
         activity_container = QWidget()
         activity_layout = QVBoxLayout(activity_container)
         activity_layout.setContentsMargins(0, 0, 0, 0)
-        activity_layout.addWidget(QLabel("Activity (every tool call, regardless of mode)"))
+        activity_layout.addWidget(QLabel("Activity (model steps, tool calls, and results)"))
         self.activity_log = QPlainTextEdit()
         self.activity_log.setObjectName("toolOutput")
         self.activity_log.setReadOnly(True)
@@ -475,7 +475,7 @@ class AgentTab(QWidget):
         for msg in self.conversation.messages:
             if msg.content.startswith(agent_service.TOOL_RESULT_PREFIX):
                 continue
-            if msg.role == "assistant" and agent_service.parse_tool_call(msg.content):
+            if msg.role == "assistant" and agent_service.parse_tool_calls(msg.content):
                 continue
             transcript_view.append_message_block(self.transcript, msg.role, msg.content, msg.timestamp)
         transcript_view.scroll_to_bottom(self.transcript)
@@ -483,12 +483,12 @@ class AgentTab(QWidget):
     # ---- activity + confirmation (called from the worker thread via signals) ----
 
     def _on_activity(self, activity: Activity) -> None:
-        marker = "applied" if activity.applied else "proposed/skipped"
-        self.turn_status.setText(f"{activity.tool} - {marker}")
+        marker = "Applied" if activity.applied else "Proposed"
+        self.turn_status.setText(f"{activity.tool} - {marker.lower()}")
         self.turn_status.setVisible(True)
-        self.activity_log.appendPlainText(
-            f"[{activity.tool} - {marker}] {activity.args}\n{activity.result}\n"
-        )
+        self._append_activity(f"{marker}: {self._activity_title(activity)}")
+        if activity.result.strip():
+            self._append_activity(activity.result.strip())
 
     def _on_confirm_request(self, container: dict) -> None:
         answer = QMessageBox.question(
@@ -548,6 +548,8 @@ class AgentTab(QWidget):
             return
         self.input_edit.clear()
         transcript_view.append_message_block(self.transcript, "user", display_text or text)
+        self.activity_log.clear()
+        self._append_activity("Planning..." if mode is AgentMode.PLAN else "Running agent...")
         self._sending = True
         self._active_mode = mode
         self.do_it_btn.setEnabled(False)
@@ -573,6 +575,7 @@ class AgentTab(QWidget):
 
     def _on_done(self, reply: str) -> None:
         transcript_view.append_message_block(self.transcript, "assistant", reply)
+        self._append_activity("Done.")
         completed_mode = self._active_mode
         if completed_mode is not AgentMode.PLAN:
             self._last_plan_request = None
@@ -601,3 +604,22 @@ class AgentTab(QWidget):
         self.send_btn.setText("Send")
         self.do_it_btn.setEnabled(False)
         self.do_it_btn.setVisible(False)
+
+    def _append_activity(self, text: str) -> None:
+        self.activity_log.appendPlainText(text)
+        self.activity_log.verticalScrollBar().setValue(self.activity_log.verticalScrollBar().maximum())
+
+    @staticmethod
+    def _activity_title(activity: Activity) -> str:
+        args = activity.args
+        if activity.tool in {"read_file", "write_file", "edit_file"}:
+            return f"{activity.tool} {args.get('path', '')}".strip()
+        if activity.tool == "run_command":
+            return f"run_command {args.get('command', '')}".strip()
+        if activity.tool == "list_dir":
+            return f"list_dir {args.get('path', '.')}"
+        if activity.tool == "search_files":
+            return f"search_files {args.get('pattern', '')}".strip()
+        if activity.tool == "grep":
+            return f"grep {args.get('pattern', '')}".strip()
+        return f"{activity.tool} {args}".strip()
