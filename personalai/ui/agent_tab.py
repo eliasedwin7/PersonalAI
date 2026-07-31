@@ -137,6 +137,7 @@ class AgentTab(QWidget):
         self.input_edit.submitted.connect(self._send)
         input_row.addWidget(self.input_edit, stretch=1)
         self.send_btn = QPushButton("Send")
+        self.send_btn.setObjectName("primaryButton")
         self.send_btn.clicked.connect(self._send)
         input_row.addWidget(self.send_btn)
         layout.addLayout(input_row)

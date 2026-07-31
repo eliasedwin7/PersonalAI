@@ -78,6 +78,7 @@ class SystemTab(QWidget):
         layout.addLayout(actions)
 
         self.output = QPlainTextEdit()
+        self.output.setObjectName("toolOutput")
         self.output.setReadOnly(True)
         self.output.setPlaceholderText("Benchmark and setup results appear here.")
         layout.addWidget(self.output, stretch=1)

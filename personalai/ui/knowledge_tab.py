@@ -75,6 +75,7 @@ class KnowledgeTab(QWidget):
         self.status.setObjectName("mutedLabel")
         layout.addWidget(self.status)
         self.results = QListWidget()
+        self.results.setObjectName("toolResults")
         layout.addWidget(self.results, stretch=1)
         self._show_sources()
 

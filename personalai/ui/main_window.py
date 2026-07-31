@@ -13,18 +13,19 @@ import base64
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QPushButton,
     QStackedWidget,
     QSystemTrayIcon,
-    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -84,34 +85,44 @@ class MainWindow(QMainWindow):
     def _build_workspace(self) -> None:
         shell = QWidget()
         shell.setObjectName("workspaceShell")
-        shell_layout = QVBoxLayout(shell)
+        shell_layout = QHBoxLayout(shell)
         shell_layout.setContentsMargins(0, 0, 0, 0)
         shell_layout.setSpacing(0)
 
-        app_bar = QWidget()
-        app_bar.setObjectName("appBar")
-        app_bar_layout = QHBoxLayout(app_bar)
-        app_bar_layout.setContentsMargins(18, 8, 18, 8)
-        app_bar_layout.setSpacing(14)
+        side_bar = QWidget()
+        side_bar.setObjectName("sideBar")
+        side_bar.setFixedWidth(224)
+        side_layout = QVBoxLayout(side_bar)
+        side_layout.setContentsMargins(14, 16, 14, 14)
+        side_layout.setSpacing(12)
         brand = QLabel("Nexus")
         brand.setObjectName("brand")
-        app_bar_layout.addWidget(brand)
-        self.navigation = QTabBar()
-        self.navigation.setObjectName("navigation")
-        for label in ("Chat", "Voice", "Knowledge", "Images", "Agent", "System"):
-            self.navigation.addTab(label)
-        self.navigation.currentChanged.connect(self._select_page)
-        app_bar_layout.addWidget(self.navigation)
-        app_bar_layout.addStretch(1)
+        side_layout.addWidget(brand)
+        subtitle = QLabel("Local AI workbench")
+        subtitle.setObjectName("sideSubtitle")
+        side_layout.addWidget(subtitle)
+
+        self.navigation = QListWidget()
+        self.navigation.setObjectName("navigationList")
+        self._page_labels = ("Chat", "Voice", "Knowledge", "Images", "Agent", "System")
+        for label in self._page_labels:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, label)
+            self.navigation.addItem(item)
+        self.navigation.currentRowChanged.connect(self._select_page)
+        side_layout.addWidget(self.navigation, stretch=1)
+
         self.connection_label = QLabel("Checking connection")
         self.connection_label.setObjectName("connectionStatus")
-        app_bar_layout.addWidget(self.connection_label)
+        side_layout.addWidget(self.connection_label)
         settings_button = QPushButton("Settings")
+        settings_button.setObjectName("sideButton")
         settings_button.clicked.connect(self._open_settings)
-        app_bar_layout.addWidget(settings_button)
-        shell_layout.addWidget(app_bar)
+        side_layout.addWidget(settings_button)
+        shell_layout.addWidget(side_bar)
 
         self.pages = QStackedWidget()
+        self.pages.setObjectName("pageStack")
         self.chat_tab = ChatTab(self.chat_service, self.task_runner, self.config_store)
         self.voice_tab = VoiceTab(self.chat_service, self.task_runner, self.config_store)
         self.voice_tab.command_requested.connect(self._handle_app_command)
@@ -128,7 +139,7 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(page)
         shell_layout.addWidget(self.pages, stretch=1)
         self.setCentralWidget(shell)
-        self.navigation.setCurrentIndex(0)
+        self.navigation.setCurrentRow(0)
 
     def _select_page(self, index: int) -> None:
         if index < 0:
@@ -136,11 +147,17 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(index)
 
     def select_page(self, label: str) -> bool:
-        for index in range(self.navigation.count()):
-            if self.navigation.tabText(index).casefold() == label.casefold():
-                self.navigation.setCurrentIndex(index)
+        for index, page_label in enumerate(self._page_labels):
+            if page_label.casefold() == label.casefold():
+                self.navigation.setCurrentRow(index)
                 return True
         return False
+
+    def current_page_label(self) -> str:
+        index = self.pages.currentIndex()
+        if 0 <= index < len(self._page_labels):
+            return self._page_labels[index]
+        return ""
 
     # ---- window geometry (remembered across restarts) ----
 

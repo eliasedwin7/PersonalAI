@@ -46,15 +46,15 @@ class CaptionTab(QWidget):
         pick_btn = QPushButton("Choose image…")
         pick_btn.clicked.connect(self._choose_image)
         self.path_label = QLabel("No image chosen")
-        self.path_label.setStyleSheet("color: #8c8c8c;")
+        self.path_label.setObjectName("mutedLabel")
         pick_row.addWidget(pick_btn)
         pick_row.addWidget(self.path_label, stretch=1)
         layout.addLayout(pick_row)
 
         self.preview = QLabel()
+        self.preview.setObjectName("imagePreview")
         self.preview.setFixedHeight(PREVIEW_HEIGHT)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setStyleSheet("background: #1e1e1e; border: 1px solid #3f3f46;")
         layout.addWidget(self.preview)
 
         session_row = QHBoxLayout()
@@ -68,6 +68,7 @@ class CaptionTab(QWidget):
         layout.addWidget(self.instruction_edit)
 
         self.caption_btn = QPushButton("Caption it")
+        self.caption_btn.setObjectName("primaryButton")
         self.caption_btn.clicked.connect(self._caption)
         layout.addWidget(self.caption_btn)
 

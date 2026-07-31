@@ -885,7 +885,7 @@ def test_main_window_constructs_with_focused_workspaces(qtbot, chat_service, tmp
     window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
     qtbot.addWidget(window)
     assert window.pages.count() == 6
-    assert [window.navigation.tabText(i) for i in range(window.navigation.count())] == [
+    assert [window.navigation.item(i).text() for i in range(window.navigation.count())] == [
         "Chat", "Voice", "Knowledge", "Images", "Agent", "System"
     ]
     assert window.images_page.tabs.tabText(0) == "Describe"
@@ -903,7 +903,7 @@ def test_main_window_handles_voice_navigation_command(qtbot, chat_service, tmp_p
 
     window._handle_app_command(AppCommand("select_page", "Knowledge", "Opening Knowledge."))
 
-    assert window.navigation.tabText(window.navigation.currentIndex()) == "Knowledge"
+    assert window.current_page_label() == "Knowledge"
 
 
 def test_main_window_remembers_geometry_across_restarts(

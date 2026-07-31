@@ -86,7 +86,7 @@ class ImageTab(QWidget):
         clear_ref_btn = QPushButton("Clear reference")
         clear_ref_btn.clicked.connect(self._clear_reference)
         self.reference_label = QLabel("No reference image (plain text-to-image)")
-        self.reference_label.setStyleSheet("color: #8c8c8c;")
+        self.reference_label.setObjectName("mutedLabel")
         ref_row.addWidget(ref_btn)
         ref_row.addWidget(clear_ref_btn)
         ref_row.addWidget(self.reference_label, stretch=1)
@@ -135,13 +135,14 @@ class ImageTab(QWidget):
         layout.addLayout(params_row)
 
         self.generate_btn = QPushButton("Generate")
+        self.generate_btn.setObjectName("primaryButton")
         self.generate_btn.clicked.connect(self._generate)
         layout.addWidget(self.generate_btn)
 
         self.preview = QLabel()
+        self.preview.setObjectName("imagePreview")
         self.preview.setFixedHeight(PREVIEW_HEIGHT)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setStyleSheet("background: #1e1e1e; border: 1px solid #3f3f46;")
         self.preview.setText("Generated image will appear here")
         layout.addWidget(self.preview)
 
