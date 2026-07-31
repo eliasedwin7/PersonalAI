@@ -37,6 +37,45 @@ DEFAULT_MODELS = {
     "vision": "llava",  # image captioning/description, see services/vision_service.py
 }
 
+LOCAL_MODEL_PROFILES = {
+    "laptop": {
+        "label": "Laptop (16 GB RAM / CPU-friendly)",
+        "models": {
+            "general": "qwen3:4b",
+            "story": "qwen3:4b",
+            "code": "qwen3:4b",
+            "vision": "gemma3:4b",
+        },
+        "fast_model": "qwen3:1.7b",
+        "deep_model": "",
+        "embedding_model": "embeddinggemma",
+    },
+    "8gb": {
+        "label": "8 GB GPU (balanced)",
+        "models": {
+            "general": "qwen3:8b",
+            "story": "qwen3:8b",
+            "code": "qwen3:8b",
+            "vision": "gemma3:4b",
+        },
+        "fast_model": "qwen3:4b",
+        "deep_model": "",
+        "embedding_model": "embeddinggemma",
+    },
+    "16gb": {
+        "label": "16 GB GPU shared with Forge / ComfyUI",
+        "models": {
+            "general": "qwen3:8b",
+            "story": "qwen3:8b",
+            "code": "qwen3:8b",
+            "vision": "gemma3:4b",
+        },
+        "fast_model": "qwen3:4b",
+        "deep_model": "qwen3:14b",
+        "embedding_model": "embeddinggemma",
+    },
+}
+
 
 def ensure_dirs() -> None:
     APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -96,6 +135,15 @@ class Config:
                                        # conversation; editable in Settings, never inferred or
                                        # sent anywhere other than the configured LLM backend
     memory_entries: list[MemoryEntry] = field(default_factory=list)  # individually approved facts
+    local_model_profile: str = "laptop"  # conservative zero-cost model bundle for a target PC
+    fast_model: str = ""              # compact model for simple questions; empty keeps one model
+    deep_model: str = ""              # opt-in stronger model, selected by Chat's Deep button
+    embedding_model: str = "embeddinggemma"
+    intelligent_routing: bool = True
+    knowledge_enabled: bool = True
+    knowledge_result_count: int = 4
+    unload_models_after_reply: bool = True  # return GPU VRAM to Forge / ComfyUI after each reply
+    agent_verify_changes: bool = False
     global_hotkey_enabled: bool = False  # Windows only: Ctrl+Alt+N shows Nexus from the tray
     system_prompts: dict[str, str] = field(default_factory=dict)  # task -> override text;
                                        # a task absent here just uses chat_service.SYSTEM_PROMPTS'
@@ -112,6 +160,27 @@ class Config:
         if entries:
             sections.append("\n".join(entries))
         return "\n".join(sections)
+
+    def apply_local_profile(self, profile: str) -> None:
+        selected = LOCAL_MODEL_PROFILES.get(profile, LOCAL_MODEL_PROFILES["laptop"])
+        self.local_model_profile = profile if profile in LOCAL_MODEL_PROFILES else "laptop"
+        self.models.update(selected["models"])
+        self.fast_model = selected["fast_model"]
+        self.deep_model = selected["deep_model"]
+        self.embedding_model = selected["embedding_model"]
+        self.intelligent_routing = True
+        self.knowledge_enabled = True
+        self.unload_models_after_reply = True
+
+    def recommended_local_models(self) -> list[str]:
+        profile = LOCAL_MODEL_PROFILES.get(self.local_model_profile, LOCAL_MODEL_PROFILES["laptop"])
+        names = [
+            *profile["models"].values(),
+            profile["fast_model"],
+            profile["deep_model"],
+            profile["embedding_model"],
+        ]
+        return list(dict.fromkeys(names))
 
 
 class ConfigStore:

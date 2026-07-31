@@ -28,7 +28,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from personalai.core.config import BACKEND_NAMES, Config, ConfigStore, MemoryEntry
+from personalai.core.config import (
+    BACKEND_NAMES,
+    LOCAL_MODEL_PROFILES,
+    Config,
+    ConfigStore,
+    MemoryEntry,
+)
 from personalai.core.errors import PersonalAIError
 from personalai.services.chat_service import SYSTEM_PROMPTS, TEXT_TASKS, VISION_TASK
 from personalai.services.voice_service import WHISPER_MODEL_SIZES
@@ -118,6 +124,23 @@ class SettingsDialog(QDialog):
         form.setContentsMargins(18, 18, 18, 18)
         form.setVerticalSpacing(12)
 
+        setup = QWidget()
+        setup_row = QHBoxLayout(setup)
+        setup_row.setContentsMargins(0, 0, 0, 0)
+        self.profile_combo = QComboBox()
+        for key, profile in LOCAL_MODEL_PROFILES.items():
+            self.profile_combo.addItem(profile["label"], key)
+        self.profile_combo.setCurrentIndex(self.profile_combo.findData(config.local_model_profile))
+        setup_row.addWidget(self.profile_combo, stretch=1)
+        apply_profile_btn = QPushButton("Apply profile")
+        apply_profile_btn.clicked.connect(self._apply_local_profile)
+        setup_row.addWidget(apply_profile_btn)
+        self.install_profile_btn = QPushButton("Install recommended")
+        self.install_profile_btn.setObjectName("primaryButton")
+        self.install_profile_btn.clicked.connect(self._install_local_profile)
+        setup_row.addWidget(self.install_profile_btn)
+        form.addRow("Local AI setup:", setup)
+
         pulled_models = self._pulled_ollama_models(config)
         self.general_edit = _model_combo(config.model_for("general"), pulled_models)
         self.story_edit = _model_combo(config.model_for("story"), pulled_models)
@@ -127,6 +150,16 @@ class SettingsDialog(QDialog):
         form.addRow("Writing model:", self.story_edit)
         form.addRow("Code model:", self.code_edit)
         form.addRow("Vision model:", self.vision_edit)
+
+        self.routing_check = QCheckBox("Use a compact model for simple chat messages")
+        self.routing_check.setChecked(config.intelligent_routing)
+        form.addRow("Smart routing:", self.routing_check)
+        self.unload_models_check = QCheckBox("Release GPU memory after each reply")
+        self.unload_models_check.setChecked(config.unload_models_after_reply)
+        self.unload_models_check.setToolTip(
+            "Recommended when Forge or ComfyUI share this GPU."
+        )
+        form.addRow("Shared GPU:", self.unload_models_check)
 
         self.limit_spin = QSpinBox()
         self.limit_spin.setRange(500, 200_000)
@@ -245,6 +278,10 @@ class SettingsDialog(QDialog):
         self.global_hotkey_check.setChecked(config.global_hotkey_enabled)
         layout.addWidget(self.global_hotkey_check)
 
+        self.agent_verify_check = QCheckBox("Review completed Agent changes before reporting success")
+        self.agent_verify_check.setChecked(config.agent_verify_changes)
+        layout.addWidget(self.agent_verify_check)
+
         backup_row = QHBoxLayout()
         backup_row.addWidget(QLabel("Your conversations and approved memory:"))
         backup_row.addStretch(1)
@@ -336,6 +373,56 @@ class SettingsDialog(QDialog):
         self.installed_models.clear()
         self.installed_models.addItems(models or ["No local Ollama models found."])
 
+    def _apply_local_profile(self) -> None:
+        profile = LOCAL_MODEL_PROFILES[self.profile_combo.currentData()]
+        self.general_edit.setCurrentText(profile["models"]["general"])
+        self.story_edit.setCurrentText(profile["models"]["story"])
+        self.code_edit.setCurrentText(profile["models"]["code"])
+        self.vision_edit.setCurrentText(profile["models"]["vision"])
+        self.routing_check.setChecked(True)
+        self.unload_models_check.setChecked(True)
+        self.model_action_status.setText("Profile applied. Save Settings to keep it.")
+        self.model_action_status.show()
+
+    def _install_local_profile(self) -> None:
+        profile = LOCAL_MODEL_PROFILES[self.profile_combo.currentData()]
+        models = list(dict.fromkeys([
+            *profile["models"].values(),
+            profile["fast_model"],
+            profile["deep_model"],
+            profile["embedding_model"],
+        ]))
+        models = [model for model in models if model]
+        client = self._ollama_client()
+        if self.task_runner is None:
+            try:
+                self._pull_models(client, models)
+            except PersonalAIError as exc:
+                QMessageBox.warning(self, "Install recommended models", str(exc))
+                return
+            self._profile_installed()
+            return
+        self._set_model_manager_busy(True, "Installing recommended local models...")
+        self.task_runner.submit(
+            self._pull_models, client, models,
+            on_result=lambda _result: self._profile_installed(),
+            on_error=self._on_model_action_error,
+        )
+
+    @staticmethod
+    def _pull_models(client, models: list[str]) -> None:
+        for model in models:
+            client.pull_model(model)
+
+    def _profile_installed(self) -> None:
+        self.config.apply_local_profile(self.profile_combo.currentData())
+        self.store.save(self.config)
+        self._apply_local_profile()
+        self._set_model_manager_busy(False)
+        self._refresh_installed_models()
+        self.model_action_status.setText("Recommended models installed and profile saved.")
+        self.model_action_status.show()
+
     def _ollama_client(self):
         from personalai.services.ollama_client import OllamaClient
 
@@ -401,7 +488,7 @@ class SettingsDialog(QDialog):
         self._model_action_in_progress = busy
         for widget in (
             self.installed_models, self.refresh_models_btn, self.remove_model_btn,
-            self.pull_model_edit, self.pull_model_btn,
+            self.pull_model_edit, self.pull_model_btn, self.install_profile_btn,
         ):
             widget.setEnabled(not busy)
         self.model_action_status.setText(status)
@@ -459,7 +546,15 @@ class SettingsDialog(QDialog):
         config.whisper_model = self.whisper_combo.currentText()
         config.assistant_memory = self.memory_edit.toPlainText().strip()
         config.memory_entries = self._memory_entries
+        config.apply_local_profile(self.profile_combo.currentData())
+        config.models["general"] = self.general_edit.currentText().strip() or config.models["general"]
+        config.models["story"] = self.story_edit.currentText().strip() or config.models["story"]
+        config.models["code"] = self.code_edit.currentText().strip() or config.models["code"]
+        config.models["vision"] = self.vision_edit.currentText().strip() or config.models["vision"]
         config.global_hotkey_enabled = self.global_hotkey_check.isChecked()
+        config.agent_verify_changes = self.agent_verify_check.isChecked()
+        config.intelligent_routing = self.routing_check.isChecked()
+        config.unload_models_after_reply = self.unload_models_check.isChecked()
 
         self._prompt_texts[self.prompt_task_combo.currentText()] = self.prompt_edit.toPlainText()
         for task in PROMPT_TASKS:

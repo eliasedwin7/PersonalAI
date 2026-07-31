@@ -169,3 +169,24 @@ def test_chat_without_images_never_adds_the_key(monkeypatch):
     client = OllamaClient("http://127.0.0.1:11434")
     client.chat([{"role": "user", "content": "hi"}], "llama3.1")
     assert "images" not in captured["body"]["messages"][0]
+
+
+def test_shared_gpu_client_releases_model_after_reply(monkeypatch):
+    captured = {}
+
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self):
+            return json.dumps({"message": {"content": "ok"}}).encode()
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data)
+        return FakeResp()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    client = OllamaClient("http://127.0.0.1:11434", unload_after_reply=True)
+
+    client.chat([{"role": "user", "content": "hi"}], "qwen3:8b")
+
+    assert captured["body"]["keep_alive"] == 0

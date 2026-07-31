@@ -15,8 +15,9 @@ from pathlib import Path
 
 from personalai.core.config import Config
 from personalai.core.conversation import Conversation, ConversationStore
-from personalai.core.errors import GenerationCancelled, UserFacingError
+from personalai.core.errors import GenerationCancelled, PersonalAIError, UserFacingError
 from personalai.services import vision_service
+from personalai.services.knowledge_service import KnowledgeStore
 from personalai.services.memory_service import MEMORY_SUGGESTION_PROMPT, parse_suggestions
 from personalai.services.ollama_client import OllamaClient
 
@@ -65,15 +66,21 @@ def system_prompt_for(
     task: str,
     overrides: dict[str, str] | None = None,
     assistant_memory: str = "",
+    knowledge_context: str = "",
+    deep_thinking: bool = False,
 ) -> str:
     """`overrides` is Config.system_prompts - a user-edited prompt for a
     task takes priority over the built-in default; a task absent (or
     blank) there just falls through to SYSTEM_PROMPTS as before."""
     prompt = (overrides or {}).get(task) or SYSTEM_PROMPTS.get(task, SYSTEM_PROMPTS[DEFAULT_TASK])
     memory = assistant_memory.strip()
-    if not memory:
-        return prompt
-    return f"{prompt}\n\nUser-approved personal context:\n{memory}"
+    if memory:
+        prompt += f"\n\nUser-approved personal context:\n{memory}"
+    if knowledge_context:
+        prompt += f"\n\nRelevant local knowledge (use it as evidence and name the source when useful):\n{knowledge_context}"
+    if deep_thinking:
+        prompt += "\n\nWork through the request carefully before answering. Check assumptions and give a clear final answer without exposing private scratch work."
+    return prompt
 
 
 @dataclass
@@ -81,20 +88,46 @@ class ChatService:
     config: Config
     store: ConversationStore
     client: OllamaClient
+    knowledge_store: KnowledgeStore | None = None
+
+    def _knowledge_context(self, query: str) -> str:
+        if not self.config.knowledge_enabled or self.knowledge_store is None:
+            return ""
+        embed_query = None
+        if isinstance(self.client, OllamaClient):
+            embed_query = lambda texts: self.client.embed(texts, self.config.embedding_model)
+        try:
+            chunks = self.knowledge_store.search(
+                query, limit=self.config.knowledge_result_count, embed_query=embed_query,
+            )
+        except PersonalAIError:
+            chunks = self.knowledge_store.search(query, limit=self.config.knowledge_result_count)
+        return "\n\n".join(f"[{chunk.source}]\n{chunk.text}" for chunk in chunks)
+
+    def _model_for(self, task: str, message: str, deep_thinking: bool) -> str:
+        if deep_thinking:
+            return self.config.deep_model or self.config.model_for(task)
+        if task != "general" or not self.config.intelligent_routing:
+            return self.config.model_for(task)
+        if self.config.fast_model and _looks_simple(message):
+            return self.config.fast_model
+        return self.config.model_for(task)
 
     def send(
         self,
         conversation: Conversation,
         user_message: str,
         on_token: Callable[[str], None] | None = None,
+        deep_thinking: bool = False,
     ) -> str:
         """Append the user's message, call Ollama with the full history,
         append and save the reply. Returns the reply text."""
         conversation.append("user", user_message)
-        model = self.config.model_for(conversation.task)
+        model = self._model_for(conversation.task, user_message, deep_thinking)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.memory_context()
+                conversation.task, self.config.system_prompts, self.config.memory_context(),
+                self._knowledge_context(user_message), deep_thinking,
             ),
             char_limit=self.config.history_char_limit)
         try:
@@ -139,7 +172,8 @@ class ChatService:
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.memory_context()
+                conversation.task, self.config.system_prompts, self.config.memory_context(),
+                self._knowledge_context(instruction),
             ),
             char_limit=self.config.history_char_limit)
         try:
@@ -172,14 +206,17 @@ class ChatService:
         self,
         conversation: Conversation,
         on_token: Callable[[str], None] | None = None,
+        deep_thinking: bool = False,
     ) -> str:
         """Generate a fresh reply to the already-saved final user message."""
         if not conversation.messages or conversation.messages[-1].role != "user":
             raise UserFacingError("There is no user message ready to regenerate.")
-        model = self.config.model_for(conversation.task)
+        request = conversation.messages[-1].content
+        model = self._model_for(conversation.task, request, deep_thinking)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.memory_context()
+                conversation.task, self.config.system_prompts, self.config.memory_context(),
+                self._knowledge_context(request), deep_thinking,
             ),
             char_limit=self.config.history_char_limit,
         )
@@ -187,3 +224,10 @@ class ChatService:
         conversation.append("assistant", reply)
         self.store.save(conversation)
         return reply
+
+
+def _looks_simple(message: str) -> bool:
+    """Keep greetings and lightweight factual requests snappy on the compact model."""
+    lower = message.casefold()
+    deep_terms = ("plan", "compare", "analyse", "analyze", "debug", "design", "why", "prove", "step by step")
+    return len(message) < 220 and not any(term in lower for term in deep_terms)

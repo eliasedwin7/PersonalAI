@@ -53,6 +53,7 @@ from personalai.services.chat_service import (
     VISION_TASK,
     ChatService,
 )
+from personalai.services.knowledge_service import KnowledgeStore
 
 
 def _reconfigure_stdio() -> None:
@@ -69,6 +70,7 @@ def _build_service() -> tuple[ChatService, config_mod.Config]:
         config=config,
         store=ConversationStore(),
         client=build_llm_client(config),
+        knowledge_store=KnowledgeStore(),
     )
     return chat_service, config
 

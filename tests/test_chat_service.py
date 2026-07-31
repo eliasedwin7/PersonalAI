@@ -99,6 +99,22 @@ def test_send_uses_the_right_model_for_the_task(tmp_path):
     assert model_used == "a-code-model"
 
 
+def test_send_routes_simple_chat_to_fast_model_and_deep_chat_to_deep_model(tmp_path):
+    config = Config(
+        models={"general": "normal", "story": "story", "code": "code"},
+        fast_model="fast",
+        deep_model="deep",
+    )
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conversation = service.store.load_or_create("general", "general")
+
+    service.send(conversation, "hello")
+    service.send(conversation, "plan a detailed project architecture", deep_thinking=True)
+
+    assert [model for _messages, model in client.calls] == ["fast", "deep"]
+
+
 def test_send_includes_system_prompt_matching_task(tmp_path):
     config = Config()
     client = FakeOllamaClient()

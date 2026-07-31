@@ -16,6 +16,18 @@ def test_model_for_unknown_task_falls_back_to_general():
     assert config.model_for("nonsense") == config.models["general"]
 
 
+def test_shared_gpu_profile_keeps_a_deep_model_on_demand():
+    config = Config()
+
+    config.apply_local_profile("16gb")
+
+    assert config.model_for("general") == "qwen3:8b"
+    assert config.fast_model == "qwen3:4b"
+    assert config.deep_model == "qwen3:14b"
+    assert config.unload_models_after_reply is True
+    assert "qwen3:14b" in config.recommended_local_models()
+
+
 def test_round_trip(tmp_path):
     store = ConfigStore(tmp_path / "config.json")
     config = store.load()

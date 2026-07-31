@@ -165,6 +165,10 @@ class ChatTab(QWidget):
         self.model_label = QLabel()
         self.model_label.setObjectName("mutedLabel")
         top_row.addWidget(self.model_label)
+        self.deep_btn = QPushButton("Deep")
+        self.deep_btn.setCheckable(True)
+        self.deep_btn.setToolTip("Use the full-quality model and a more deliberate reasoning prompt for this reply.")
+        top_row.addWidget(self.deep_btn)
         self.memory_btn = QPushButton("Review memory")
         self.memory_btn.setToolTip("Suggest lasting facts from this chat for your approval.")
         self.memory_btn.clicked.connect(self._review_memory)
@@ -543,6 +547,7 @@ class ChatTab(QWidget):
                 on_result=self._on_done,
                 on_error=self._on_error,
                 on_cancelled=self._on_cancelled,
+                deep_thinking=self.deep_btn.isChecked(),
             )
         else:
             self._send_task = self.task_runner.submit(
@@ -644,6 +649,7 @@ class ChatTab(QWidget):
             on_result=self._on_done,
             on_error=self._on_error,
             on_cancelled=self._on_cancelled,
+            deep_thinking=self.deep_btn.isChecked(),
         )
 
     # ---- persistent memory ----

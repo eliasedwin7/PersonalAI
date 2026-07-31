@@ -47,24 +47,7 @@ PersonalAI's.
 
 1. Download and install Ollama from **[ollama.com](https://ollama.com)**
    — it's a normal Windows installer, no account or sign-in needed.
-2. Open a terminal (any terminal — Ollama isn't tied to Anaconda) and
-   pull a model. On a laptop with no discrete GPU, start small - it's
-   genuinely usable, not a toy:
-   ```powershell
-   ollama pull llama3.2:3b
-   ```
-   ~2GB download, replies in a handful of seconds on CPU alone (Step 3
-   below points PersonalAI at it). If you have a real GPU (8GB+ VRAM) or
-   don't mind slower replies, the bigger `llama3.1` (PersonalAI's
-   out-of-the-box default) gives noticeably better quality:
-   ```powershell
-   ollama pull llama3.1
-   ```
-3. (Optional, for coding help) Pull a coding-focused model too:
-   ```powershell
-   ollama pull qwen2.5-coder
-   ```
-4. Ollama runs as a background service after install — you don't need to
+2. Ollama runs as a background service after install — you don't need to
    manually start anything before using PersonalAI. You can check it's
    alive any time with:
    ```powershell
@@ -89,16 +72,20 @@ PersonalAI's.
 
 ## Step 3 - Your first conversation
 
-If you pulled the small `llama3.2:3b` model in Step 1, point PersonalAI
-at it (otherwise skip this - `llama3.1` is already the default):
-```powershell
-conda run -n personalai myai config set models.general llama3.2:3b
-conda run -n personalai myai config set models.story llama3.2:3b
-```
+Launch Nexus (or the standalone `Nexus.exe`) and open **Settings → Models**.
+Choose one of the profiles, then select **Install recommended** once:
 
-```powershell
-conda run -n personalai myai chat "what can you help me with?"
-```
+- **Laptop (16 GB RAM / CPU-friendly):** `qwen3:4b` for normal chat and
+  `qwen3:1.7b` for short questions. It is the sensible starting point for
+  this laptop, though CPU responses are naturally slower.
+- **16 GB GPU shared with Forge / ComfyUI:** `qwen3:8b` for normal work,
+  `qwen3:4b` for light chat, and `qwen3:14b` only when you press **Deep**.
+  Nexus releases GPU memory once a reply finishes so Forge and ComfyUI can
+  use the card again.
+
+This is the only model setup step. The button downloads models through Ollama,
+sets the profile, and enables private local knowledge retrieval. Start chatting
+from the Chat page when it completes.
 
 You should see a streamed reply. That's it — a `~/.personalai/` folder
 was just created to hold your settings and conversation history.
@@ -168,7 +155,7 @@ Or double-click **`Run-PersonalAI-GUI.bat`**, or build a real standalone
 `.exe` (see [Building a standalone .exe](#building-a-standalone-exe)
 below) if you couldn't find an executable to click.
 
-It has three tabs, all talking to the exact same settings and saved
+It has five workspaces, all talking to the exact same settings and saved
 conversations as the CLI (a session started with `myai story` shows up
 in the GUI's session list, and vice versa):
 
@@ -185,8 +172,11 @@ in the GUI's session list, and vice versa):
   its own, then answers back both as text and out loud. See
   [Voice input and reading replies aloud](#voice-input-and-reading-replies-aloud)
   below.
-- **Caption Image** — choose an image, optionally type what you want to
-  know about it, click "Caption it".
+- **Knowledge** — index selected local folders once. Relevant passages are
+  retrieved into Chat privately, and the original files never leave your PC.
+- **Images** — image description and Stable Diffusion Forge generation.
+- **Agent** — a project-aware assistant that can inspect and change files
+  only inside the workspace you choose.
 
 A few things make it feel like a normal desktop app instead of a script
 with a window glued on: it remembers its size/position between
@@ -211,7 +201,13 @@ Writing, and Code sessions. While a reply is streaming, Nexus shows elapsed
 generation time beside **Stop**.
 
 **Settings → Models** lists installed Ollama models and lets you pull a model
-or remove a selected local model. **Settings → Assistant → Export backup**
+or remove a selected local model. Its hardware profiles make setup a single
+click: use **Laptop** for 16 GB RAM without a gaming GPU, or **16 GB GPU
+shared with Forge / ComfyUI** for an RTX 5060 Ti machine. The shared profile
+uses `qwen3:8b` by default, a fast compact model for short questions, and
+loads `qwen3:14b` only when Chat's **Deep** button is selected. It releases
+the model after a reply so Forge and ComfyUI can reclaim VRAM. **Settings →
+Assistant → Export backup**
 creates a ZIP containing `config.json` (including approved memory) and every
 conversation. The same backup is available from the command line with
 `myai export nexus-backup.zip`.

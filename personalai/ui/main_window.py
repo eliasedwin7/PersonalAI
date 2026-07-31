@@ -35,6 +35,7 @@ from personalai.services.image_service import build_forge_client
 from personalai.ui.agent_tab import AgentTab
 from personalai.ui.chat_tab import ChatTab
 from personalai.ui.images_page import ImagesPage
+from personalai.ui.knowledge_tab import KnowledgeTab
 from personalai.ui.settings_dialog import SettingsDialog
 from personalai.ui.voice_tab import VoiceTab
 from personalai.ui.workers import TaskRunner
@@ -89,7 +90,7 @@ class MainWindow(QMainWindow):
         app_bar_layout.addWidget(brand)
         self.navigation = QTabBar()
         self.navigation.setObjectName("navigation")
-        for label in ("Chat", "Voice", "Images", "Agent"):
+        for label in ("Chat", "Voice", "Knowledge", "Images", "Agent"):
             self.navigation.addTab(label)
         self.navigation.currentChanged.connect(self._select_page)
         app_bar_layout.addWidget(self.navigation)
@@ -105,11 +106,12 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.chat_tab = ChatTab(self.chat_service, self.task_runner, self.config_store)
         self.voice_tab = VoiceTab(self.chat_service, self.task_runner, self.config_store)
+        self.knowledge_tab = KnowledgeTab(self.chat_service, self.task_runner, self.config_store)
         self.images_page = ImagesPage(self.chat_service, self.task_runner)
         self.caption_tab = self.images_page.caption_tab
         self.image_tab = self.images_page.image_tab
         self.agent_tab = AgentTab(self.chat_service, self.task_runner, self.config_store)
-        for page in (self.chat_tab, self.voice_tab, self.images_page, self.agent_tab):
+        for page in (self.chat_tab, self.voice_tab, self.knowledge_tab, self.images_page, self.agent_tab):
             self.pages.addWidget(page)
         shell_layout.addWidget(self.pages, stretch=1)
         self.setCentralWidget(shell)

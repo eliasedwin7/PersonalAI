@@ -20,8 +20,9 @@ CHAT_TIMEOUT_S = 600
 
 
 class OllamaClient:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, unload_after_reply: bool = False) -> None:
         self.base_url = base_url.rstrip("/")
+        self.unload_after_reply = unload_after_reply
 
     def is_available(self) -> bool:
         try:
@@ -47,6 +48,27 @@ class OllamaClient:
     def delete_model(self, model: str) -> None:
         """Remove a locally pulled Ollama model."""
         self._model_request("/api/delete", model)
+
+    def embed(self, inputs: list[str], model: str) -> list[list[float]]:
+        """Create local vector embeddings through Ollama's /api/embed endpoint."""
+        request = urllib.request.Request(
+            self.base_url + "/api/embed",
+            data=json.dumps({
+                "model": model,
+                "input": inputs,
+                "keep_alive": 0 if self.unload_after_reply else "5m",
+            }).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=CHAT_TIMEOUT_S) as response:
+                payload = json.loads(response.read())
+            return payload.get("embeddings", [])
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:500]
+            raise UserFacingError(f"Ollama could not create embeddings: {detail}") from exc
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+            raise OllamaUnavailable(f"Cannot reach Ollama at {self.base_url}: {exc}") from exc
 
     def _model_request(self, path: str, model: str) -> None:
         request = urllib.request.Request(
@@ -89,6 +111,9 @@ class OllamaClient:
             payload_messages = messages[:-1] + [{**messages[-1], "images": images}]
         payload = {"model": model, "messages": payload_messages,
                   "stream": on_token is not None}
+        if self.unload_after_reply:
+            # A shared GPU should be released as soon as Nexus has its reply.
+            payload["keep_alive"] = 0
         req = urllib.request.Request(
             self.base_url + "/api/chat",
             data=json.dumps(payload).encode(),

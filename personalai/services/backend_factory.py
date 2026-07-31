@@ -18,7 +18,7 @@ def build_llm_client(config: Config) -> LLMClient:
     if config.backend == "ollama":
         from personalai.services.ollama_client import OllamaClient
 
-        return OllamaClient(config.ollama_url)
+        return OllamaClient(config.ollama_url, config.unload_models_after_reply)
 
     if config.backend == "anthropic":
         from personalai.services.anthropic_client import AnthropicClient

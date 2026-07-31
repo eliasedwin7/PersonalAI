@@ -9,6 +9,7 @@ from personalai.core import config as config_mod
 from personalai.core.conversation import ConversationStore
 from personalai.services.backend_factory import build_llm_client
 from personalai.services.chat_service import ChatService
+from personalai.services.knowledge_service import KnowledgeStore
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
         config=config,
         store=ConversationStore(),
         client=build_llm_client(config),
+        knowledge_store=KnowledgeStore(),
     )
 
     app = QApplication(argv if argv is not None else sys.argv[:1])

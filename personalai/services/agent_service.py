@@ -322,6 +322,7 @@ class AgentService:
         conversation.append("user", user_message)
         system_prompt = system_prompt_for(workspace, mode)
         model = self.chat_service.config.model_for(conversation.task)
+        applied_activities: list[Activity] = []
 
         for _ in range(MAX_TOOL_TURNS):
             messages = conversation.as_ollama_messages(system_prompt)
@@ -330,6 +331,12 @@ class AgentService:
 
             parsed = parse_tool_call(reply)
             if parsed is None:
+                if self.chat_service.config.agent_verify_changes and applied_activities:
+                    verification = self._verify(applied_activities, workspace, model)
+                    if on_activity is not None:
+                        on_activity(Activity("verify", {}, verification, True))
+                    conversation.append("assistant", f"[verification]\n{verification}")
+                    reply += f"\n\nVerification:\n{verification}"
                 self.chat_service.store.save(conversation)
                 return reply
 
@@ -338,6 +345,8 @@ class AgentService:
             if on_activity is not None:
                 on_activity(Activity(tool=tool_name, args=tool_args,
                                      result=result_text, applied=applied))
+            if applied and tool_name in MUTATING_TOOLS:
+                applied_activities.append(Activity(tool_name, tool_args, result_text, True))
             conversation.append("user", f"{TOOL_RESULT_PREFIX}{tool_name}]\n{result_text}")
 
         self.chat_service.store.save(conversation)
@@ -345,6 +354,24 @@ class AgentService:
             "(stopped after reaching the tool-call limit for this turn - "
             "ask again to continue, or try a more specific request)"
         )
+
+    def _verify(self, activities: list[Activity], workspace: Path, model: str) -> str:
+        """Review real tool output without inventing unobserved test results."""
+        evidence = "\n\n".join(
+            f"{activity.tool} {activity.args}\n{activity.result}" for activity in activities
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a careful software-work verifier. Review recorded tool results. "
+                    "State what is evidenced, identify risks or missing checks, and never claim "
+                    "a test ran unless its output is present. Keep it concise."
+                ),
+            },
+            {"role": "user", "content": f"Workspace: {workspace}\n\nChanges:\n{evidence}"},
+        ]
+        return self.chat_service.client.chat(messages, model)
 
     def _execute(
         self,

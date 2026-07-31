@@ -55,7 +55,7 @@ management, all a window on top of the exact same
 `ChatService`/`ConversationStore` the CLI uses, so a session started
 with `myai story` shows up there too, and vice versa.
 
-The desktop workspace groups work into Chat, Voice, Images, and Agent.
+The desktop workspace groups work into Chat, Voice, Knowledge, Images, and Agent.
 Voice uses your Windows default microphone, with a live input level and a
 short test so a silent or incorrectly routed device is visible before
 transcription starts. Chat has session search, safe response regeneration,
@@ -65,14 +65,14 @@ what you explicitly type; it is never inferred from conversations.
 ## Quick start
 
 ```powershell
-# 1. Install Ollama once: https://ollama.com, then pull a model
-ollama pull llama3.1
+# 1. Install Ollama once: https://ollama.com
 
 # 2. Install PersonalAI (from an Anaconda Prompt, in this folder)
 powershell -ExecutionPolicy Bypass -File Install-PersonalAI-Env.ps1 -Dev
 
-# 3. Chat
-conda run -n personalai myai chat "what can you help me with?"
+# 3. Open Nexus, then Settings > Models > choose your hardware profile
+#    and select Install recommended. It downloads the local models once.
+conda run -n personalai myai gui
 ```
 
 See **[SETUP.md](SETUP.md)** for the full walkthrough, including using
