@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from personalai.core.config import DEFAULT_MODELS, Config, ConfigStore
+from personalai.core.config import DEFAULT_MODELS, Config, ConfigStore, MemoryEntry
 
 
 def test_default_config_has_all_tasks():
@@ -24,6 +24,7 @@ def test_round_trip(tmp_path):
     config.context_char_limit = 5000
     config.assistant_memory = "Prefers Australian English."
     config.global_hotkey_enabled = True
+    config.memory_entries = [MemoryEntry("Prefers concise answers.")]
     store.save(config)
 
     reloaded = ConfigStore(tmp_path / "config.json").load()
@@ -32,6 +33,8 @@ def test_round_trip(tmp_path):
     assert reloaded.context_char_limit == 5000
     assert reloaded.assistant_memory == "Prefers Australian English."
     assert reloaded.global_hotkey_enabled is True
+    assert reloaded.memory_entries[0].text == "Prefers concise answers."
+    assert "Prefers concise answers." in reloaded.memory_context()
     # untouched tasks keep their defaults after a partial models dict is saved
     assert reloaded.model_for("code") == DEFAULT_MODELS["code"]
 

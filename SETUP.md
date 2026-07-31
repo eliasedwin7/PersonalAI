@@ -202,7 +202,13 @@ typed free-hand — context size limit, and the voice input model size).
 Use **Chat → Review memory** when a conversation contains preferences or
 lasting context worth carrying forward. Nexus proposes short facts, but none
 are remembered unless you check and save them in the review dialog. You can
-still edit approved memory directly in **Settings → Assistant**.
+still edit free-form notes directly in **Settings → Assistant**. Approved
+facts appear in their own history there, where each one can be added, edited,
+or deleted independently.
+
+The Chat sidebar searches both chat names and message text across General,
+Writing, and Code sessions. While a reply is streaming, Nexus shows elapsed
+generation time beside **Stop**.
 
 **Settings → Models** lists installed Ollama models and lets you pull a model
 or remove a selected local model. **Settings → Assistant → Export backup**

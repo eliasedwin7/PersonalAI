@@ -147,6 +147,7 @@ def test_chat_tab_stop_keeps_the_user_message_without_a_partial_reply(
 
     assert [message.content for message in tab.conversation.messages] == ["please stop"]
     assert "partial" not in tab.transcript.toPlainText()
+    assert not tab.generation_status.isVisible()
 
 
 def test_chat_tab_regenerate_replaces_latest_reply(qtbot, chat_service, task_runner):
@@ -293,8 +294,26 @@ def test_chat_tab_memory_approval_persists_only_checked_facts(
 
     tab._show_memory_suggestions(["Prefers concise answers.", "Works on Nexus."])
 
-    assert chat_service.config.assistant_memory == "- Prefers concise answers."
-    assert config_store.load().assistant_memory == "- Prefers concise answers."
+    assert [entry.text for entry in chat_service.config.memory_entries] == ["Prefers concise answers."]
+    assert [entry.text for entry in config_store.load().memory_entries] == ["Prefers concise answers."]
+
+
+def test_chat_tab_searches_message_content_across_text_sessions(qtbot, chat_service, task_runner):
+    from personalai.ui.chat_tab import ChatTab
+
+    code = chat_service.store.load_or_create("release", "code")
+    code.append("user", "Find the deployment checklist.")
+    chat_service.store.save(code)
+    tab = ChatTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+
+    tab.session_search.setText("deployment")
+
+    assert tab.session_list.count() == 1
+    assert "release" in tab.session_list.item(0).text()
+    tab._on_session_selected(tab.session_list.item(0))
+    assert tab.conversation.name == "release"
+    assert tab.task_combo.currentText() == "code"
 
 
 def test_chat_tab_session_list_filters_by_task(qtbot, chat_service, task_runner):

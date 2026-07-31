@@ -44,6 +44,19 @@ def test_system_prompt_for_appends_user_approved_memory():
     assert "My name is Edwin." in prompt
 
 
+def test_send_includes_structured_approved_memory(tmp_path):
+    from personalai.core.config import MemoryEntry
+
+    config = Config(memory_entries=[MemoryEntry("The user prefers concise answers.")])
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+    conversation = service.store.load_or_create("general", "general")
+
+    service.send(conversation, "hello")
+
+    assert "The user prefers concise answers." in client.calls[0][0][0]["content"]
+
+
 def test_send_uses_configured_system_prompt_override(tmp_path):
     config = Config(system_prompts={"story": "Always write in second person."})
     client = FakeOllamaClient()

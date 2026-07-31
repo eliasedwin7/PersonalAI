@@ -29,6 +29,13 @@ class Message:
     timestamp: str = ""
 
 
+@dataclass(frozen=True)
+class ConversationSearchResult:
+    name: str
+    task: str
+    snippet: str
+
+
 @dataclass
 class Conversation:
     name: str
@@ -145,3 +152,29 @@ class ConversationStore:
 
     def list_all(self) -> list[str]:
         return sorted(p.stem for p in self.directory.glob("*.json"))
+
+    def search(self, query: str, limit: int = 50) -> list[ConversationSearchResult]:
+        """Search chat titles and message text across all persisted sessions."""
+        needle = query.strip().casefold()
+        if not needle:
+            return []
+        results: list[ConversationSearchResult] = []
+        for name in self.list_all():
+            conversation = self.load_or_create(name, "general")
+            if needle in conversation.name.casefold():
+                results.append(ConversationSearchResult(name, conversation.task, conversation.name))
+            else:
+                for message in conversation.messages:
+                    content = " ".join(message.content.split())
+                    index = content.casefold().find(needle)
+                    if index >= 0:
+                        start = max(0, index - 42)
+                        end = min(len(content), index + len(query) + 72)
+                        snippet = ("..." if start else "") + content[start:end]
+                        if end < len(content):
+                            snippet += "..."
+                        results.append(ConversationSearchResult(name, conversation.task, snippet))
+                        break
+            if len(results) >= limit:
+                break
+        return results

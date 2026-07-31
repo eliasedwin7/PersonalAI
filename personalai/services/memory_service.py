@@ -6,10 +6,13 @@ import json
 import re
 from collections.abc import Iterable
 
+from personalai.core.config import MemoryEntry
+
 MEMORY_SUGGESTION_PROMPT = """Review this Nexus conversation and suggest at most five durable,
 useful facts or preferences that would help an assistant in future chats. Only include facts
 the user stated or clearly confirmed. Exclude temporary requests, sensitive details, and
-anything about other people unless the user explicitly asked to remember it. Return only a
+anything about other people unless the user explicitly asked to remember it. Phrase each fact
+as a neutral, standalone statement such as "The user prefers concise answers." Return only a
 JSON array of short strings. Return [] when there is nothing useful to remember."""
 
 MAX_SUGGESTION_LENGTH = 240
@@ -50,3 +53,14 @@ def merge_approved_memory(existing: str, approved: Iterable[str]) -> str:
             lines.append(f"- {clean}")
             seen.add(clean.casefold())
     return "\n".join(lines)
+
+
+def add_approved_entries(entries: list[MemoryEntry], approved: Iterable[str]) -> list[MemoryEntry]:
+    """Append new approvals once while retaining their reviewable history."""
+    known = {entry.text.casefold() for entry in entries}
+    for fact in approved:
+        clean = re.sub(r"\s+", " ", fact).strip(" -\t\r\n")
+        if clean and clean.casefold() not in known:
+            entries.append(MemoryEntry(text=clean))
+            known.add(clean.casefold())
+    return entries

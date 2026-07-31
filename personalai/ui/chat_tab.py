@@ -11,9 +11,10 @@ outline and just read the reply, without a mic button in the way.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -44,7 +45,7 @@ from personalai.core.conversation import Conversation
 from personalai.core.errors import PersonalAIError
 from personalai.services import context_service
 from personalai.services.chat_service import TEXT_TASKS, ChatService
-from personalai.services.memory_service import merge_approved_memory
+from personalai.services.memory_service import add_approved_entries
 from personalai.ui import transcript_view
 from personalai.ui.workers import TaskHandle, TaskRunner
 
@@ -107,6 +108,7 @@ class ChatTab(QWidget):
         self._sending = False
         self._send_task: TaskHandle | None = None
         self._memory_suggesting = False
+        self._generation_started_at: float | None = None
         self.setAcceptDrops(True)
 
         outer = QHBoxLayout(self)
@@ -131,7 +133,8 @@ class ChatTab(QWidget):
         session_header.addWidget(new_btn)
         left_layout.addLayout(session_header)
         self.session_search = QLineEdit()
-        self.session_search.setPlaceholderText("Search sessions")
+        self.session_search.setPlaceholderText("Search chats and messages")
+        self.session_search.setToolTip("Search saved chat titles and message text across all chat modes.")
         self.session_search.textChanged.connect(self._filter_sessions)
         left_layout.addWidget(self.session_search)
         self.session_list = QListWidget()
@@ -240,7 +243,15 @@ class ChatTab(QWidget):
         self.stop_btn.clicked.connect(self._stop_generation)
         self.stop_btn.setVisible(False)
         input_row.addWidget(self.stop_btn)
+        self.generation_status = QLabel()
+        self.generation_status.setObjectName("mutedLabel")
+        self.generation_status.hide()
+        input_row.addWidget(self.generation_status)
         right_layout.addLayout(input_row)
+
+        self._generation_timer = QTimer(self)
+        self._generation_timer.setInterval(1_000)
+        self._generation_timer.timeout.connect(self._update_generation_status)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
@@ -268,25 +279,45 @@ class ChatTab(QWidget):
     def _filter_sessions(self, query: str) -> None:
         query = query.strip().lower()
         self.session_list.clear()
+        if query:
+            for result in self.chat_service.store.search(query):
+                if result.task not in TEXT_TASKS:
+                    continue
+                item = QListWidgetItem(f"{result.name} · {result.task}\n{result.snippet}")
+                item.setData(Qt.ItemDataRole.UserRole, (result.name, result.task))
+                item.setToolTip(result.snippet)
+                self.session_list.addItem(item)
+            return
         for name in getattr(self, "_session_names", []):
-            if not query or query in name.lower():
-                self.session_list.addItem(QListWidgetItem(name))
+            self.session_list.addItem(QListWidgetItem(name))
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
-        self._load_session(item.text())
+        result = item.data(Qt.ItemDataRole.UserRole)
+        if result is None:
+            self._load_session(item.text())
+            return
+        name, task = result
+        if task != self.task_combo.currentText():
+            self.task_combo.blockSignals(True)
+            self.task_combo.setCurrentText(task)
+            self.task_combo.blockSignals(False)
+            self._reload_sessions()
+        self._load_session(name)
 
     def _on_session_context_menu(self, pos) -> None:
         item = self.session_list.itemAt(pos)
         if item is None:
             return
+        result = item.data(Qt.ItemDataRole.UserRole)
+        name = result[0] if result is not None else item.text()
         menu = QMenu(self)
         rename_action = menu.addAction("Rename session")
         delete_action = menu.addAction("Delete session")
         action = menu.exec(self.session_list.mapToGlobal(pos))
         if action is rename_action:
-            self._rename_session(item.text())
+            self._rename_session(name)
         elif action is delete_action:
-            self._delete_session(item.text())
+            self._delete_session(name)
 
     def _rename_session(self, name: str) -> None:
         new_name, ok = QInputDialog.getText(self, "Rename session", "New session name:", text=name)
@@ -498,6 +529,7 @@ class ChatTab(QWidget):
         transcript_view.append_body(self.transcript, display_text + "\n\n")
         transcript_view.append_role_label(self.transcript, "assistant")
         self._sending = True
+        self._start_generation_status()
         self.send_btn.setEnabled(False)
         self.regenerate_btn.setEnabled(False)
         self.memory_btn.setEnabled(False)
@@ -531,6 +563,7 @@ class ChatTab(QWidget):
         # blocks, bold, lists, ...) now that the full message is known.
         self._render_transcript()
         self._sending = False
+        self._stop_generation_status()
         self._send_task = None
         self.send_btn.setEnabled(True)
         self.stop_btn.setVisible(False)
@@ -540,6 +573,7 @@ class ChatTab(QWidget):
     def _on_error(self, exc: BaseException) -> None:
         transcript_view.append_body(self.transcript, f"\n[error] {exc}\n\n")
         self._sending = False
+        self._stop_generation_status()
         self._send_task = None
         self.send_btn.setEnabled(True)
         self.stop_btn.setVisible(False)
@@ -558,6 +592,7 @@ class ChatTab(QWidget):
             self.conversation.messages.pop()
             self.chat_service.store.save(self.conversation)
         self._sending = False
+        self._stop_generation_status()
         self._send_task = None
         self.stop_btn.setVisible(False)
         self.send_btn.setEnabled(True)
@@ -567,6 +602,23 @@ class ChatTab(QWidget):
         if self._send_task is not None:
             self.stop_btn.setEnabled(False)
             self._send_task.cancel()
+
+    def _start_generation_status(self) -> None:
+        self._generation_started_at = time.monotonic()
+        self._generation_timer.start()
+        self._update_generation_status()
+        self.generation_status.show()
+
+    def _update_generation_status(self) -> None:
+        if self._generation_started_at is None:
+            return
+        elapsed = int(time.monotonic() - self._generation_started_at)
+        self.generation_status.setText(f"Generating {elapsed // 60}:{elapsed % 60:02d}")
+
+    def _stop_generation_status(self) -> None:
+        self._generation_timer.stop()
+        self._generation_started_at = None
+        self.generation_status.hide()
 
     def _regenerate(self) -> None:
         if not self._can_regenerate() or self.conversation is None:
@@ -580,6 +632,7 @@ class ChatTab(QWidget):
         self.content_stack.setCurrentWidget(self.transcript)
         transcript_view.append_role_label(self.transcript, "assistant")
         self._sending = True
+        self._start_generation_status()
         self.send_btn.setEnabled(False)
         self.regenerate_btn.setEnabled(False)
         self.memory_btn.setEnabled(False)
@@ -619,7 +672,7 @@ class ChatTab(QWidget):
         if not approved:
             return
         config = self.chat_service.config
-        config.assistant_memory = merge_approved_memory(config.assistant_memory, approved)
+        add_approved_entries(config.memory_entries, approved)
         self.config_store.save(config)
 
     def _on_memory_suggestion_error(self, exc: BaseException) -> None:

@@ -94,7 +94,7 @@ class ChatService:
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.assistant_memory
+                conversation.task, self.config.system_prompts, self.config.memory_context()
             ),
             char_limit=self.config.history_char_limit)
         try:
@@ -139,7 +139,7 @@ class ChatService:
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.assistant_memory
+                conversation.task, self.config.system_prompts, self.config.memory_context()
             ),
             char_limit=self.config.history_char_limit)
         try:
@@ -179,7 +179,7 @@ class ChatService:
         model = self.config.model_for(conversation.task)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.assistant_memory
+                conversation.task, self.config.system_prompts, self.config.memory_context()
             ),
             char_limit=self.config.history_char_limit,
         )

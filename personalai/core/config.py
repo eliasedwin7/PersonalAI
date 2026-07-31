@@ -22,6 +22,7 @@ import json
 import os
 import tempfile
 from dataclasses import asdict, dataclass, field, fields
+from datetime import UTC, datetime
 from pathlib import Path
 
 APP_DIR = Path(os.environ.get("PERSONALAI_HOME", "")) if os.environ.get("PERSONALAI_HOME") \
@@ -44,6 +45,15 @@ def ensure_dirs() -> None:
 
 BACKEND_NAMES = ("ollama", "anthropic", "openai", "airllm")
 AGENT_MODE_NAMES = ("plan", "auto", "manual")  # see services/agent_service.py's AgentMode
+
+
+@dataclass
+class MemoryEntry:
+    """One approved fact, with enough provenance to review it later."""
+
+    text: str
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
+    source: str = "Approved from chat"
 
 
 @dataclass
@@ -85,6 +95,7 @@ class Config:
     assistant_memory: str = ""       # user-approved facts/preferences injected into every
                                        # conversation; editable in Settings, never inferred or
                                        # sent anywhere other than the configured LLM backend
+    memory_entries: list[MemoryEntry] = field(default_factory=list)  # individually approved facts
     global_hotkey_enabled: bool = False  # Windows only: Ctrl+Alt+N shows Nexus from the tray
     system_prompts: dict[str, str] = field(default_factory=dict)  # task -> override text;
                                        # a task absent here just uses chat_service.SYSTEM_PROMPTS'
@@ -93,6 +104,14 @@ class Config:
 
     def model_for(self, task: str) -> str:
         return self.models.get(task) or self.models.get("general", DEFAULT_MODELS["general"])
+
+    def memory_context(self) -> str:
+        """Combine old free-form notes with individually approved facts."""
+        sections = [self.assistant_memory.strip()] if self.assistant_memory.strip() else []
+        entries = [f"- {entry.text}" for entry in self.memory_entries if entry.text.strip()]
+        if entries:
+            sections.append("\n".join(entries))
+        return "\n".join(sections)
 
 
 class ConfigStore:
@@ -114,6 +133,11 @@ class ConfigStore:
             merged = dict(DEFAULT_MODELS)
             merged.update(kwargs["models"])
             kwargs["models"] = merged
+        if "memory_entries" in kwargs:
+            kwargs["memory_entries"] = [
+                MemoryEntry(**entry) for entry in kwargs["memory_entries"]
+                if isinstance(entry, dict) and entry.get("text", "").strip()
+            ]
         return Config(**kwargs)
 
     def save(self, config: Config) -> None:

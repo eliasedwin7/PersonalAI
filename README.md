@@ -377,9 +377,11 @@ needing a real Ollama server running.
   default instructions without touching code; an empty value resets it.
 - ✅ **Approval-based persistent memory** — Chat's **Review memory** action
   suggests durable facts from the current conversation; each item stays
-  unchecked until you approve it, then becomes part of future context.
+  unchecked until you approve it. Each approval has its own editable history
+  in Settings and becomes part of future context.
 - ✅ **Conversation controls and data portability** — rename chats from the
-  sidebar, stop a streamed reply, pull or remove local Ollama models in
+  sidebar, search message text across saved chats, stop a streamed reply
+  with elapsed-time feedback, pull or remove local Ollama models in
   Settings, export a ZIP backup of conversations and approved memory, and
   optionally open Nexus globally with `Ctrl+Alt+N` on Windows.
 - ✅ **Long-conversation history trimming** — a session's full history

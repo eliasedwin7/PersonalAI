@@ -14,9 +14,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -26,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from personalai.core.config import BACKEND_NAMES, Config, ConfigStore
+from personalai.core.config import BACKEND_NAMES, Config, ConfigStore, MemoryEntry
 from personalai.core.errors import PersonalAIError
 from personalai.services.chat_service import SYSTEM_PROMPTS, TEXT_TASKS, VISION_TASK
 from personalai.services.voice_service import WHISPER_MODEL_SIZES
@@ -56,7 +58,7 @@ class SettingsDialog(QDialog):
         self.task_runner = task_runner
         self._model_action_in_progress = False
         self.setWindowTitle("Settings")
-        self.resize(760, 600)
+        self.resize(760, 680)
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -172,6 +174,10 @@ class SettingsDialog(QDialog):
         self.pull_model_btn.clicked.connect(self._pull_model)
         pull_row.addWidget(self.pull_model_btn)
         manager_layout.addLayout(pull_row)
+        self.model_action_status = QLabel()
+        self.model_action_status.setObjectName("mutedLabel")
+        self.model_action_status.hide()
+        manager_layout.addWidget(self.model_action_status)
         form.addRow("Installed Ollama models:", manager)
         self.tabs.addTab(page, "Models")
 
@@ -212,6 +218,28 @@ class SettingsDialog(QDialog):
         )
         self.memory_edit.setMaximumHeight(90)
         layout.addWidget(self.memory_edit)
+
+        layout.addWidget(QLabel("Approved memory"))
+        self._memory_entries = [
+            MemoryEntry(entry.text, entry.created_at, entry.source)
+            for entry in config.memory_entries
+        ]
+        self.memory_list = QListWidget()
+        self.memory_list.setMaximumHeight(118)
+        self._refresh_memory_entries()
+        layout.addWidget(self.memory_list)
+        memory_actions = QHBoxLayout()
+        add_memory_btn = QPushButton("Add")
+        add_memory_btn.clicked.connect(self._add_memory_entry)
+        memory_actions.addWidget(add_memory_btn)
+        edit_memory_btn = QPushButton("Edit selected")
+        edit_memory_btn.clicked.connect(self._edit_memory_entry)
+        memory_actions.addWidget(edit_memory_btn)
+        delete_memory_btn = QPushButton("Delete selected")
+        delete_memory_btn.clicked.connect(self._delete_memory_entry)
+        memory_actions.addWidget(delete_memory_btn)
+        memory_actions.addStretch(1)
+        layout.addLayout(memory_actions)
 
         self.global_hotkey_check = QCheckBox("Open Nexus with Ctrl+Alt+N (Windows)")
         self.global_hotkey_check.setChecked(config.global_hotkey_enabled)
@@ -262,6 +290,42 @@ class SettingsDialog(QDialog):
         self._prompt_texts[task] = SYSTEM_PROMPTS[task]
         self.prompt_edit.setPlainText(SYSTEM_PROMPTS[task])
 
+    def _refresh_memory_entries(self) -> None:
+        self.memory_list.clear()
+        for index, entry in enumerate(self._memory_entries):
+            item = QListWidgetItem(entry.text)
+            item.setData(Qt.ItemDataRole.UserRole, index)
+            item.setToolTip(f"{entry.source}\n{entry.created_at}")
+            self.memory_list.addItem(item)
+
+    def _selected_memory_index(self) -> int | None:
+        item = self.memory_list.currentItem()
+        return None if item is None else item.data(Qt.ItemDataRole.UserRole)
+
+    def _add_memory_entry(self) -> None:
+        text, ok = QInputDialog.getText(self, "Add memory", "Fact to remember:")
+        if ok and text.strip():
+            self._memory_entries.append(MemoryEntry(text=text.strip(), source="Added in Settings"))
+            self._refresh_memory_entries()
+
+    def _edit_memory_entry(self) -> None:
+        index = self._selected_memory_index()
+        if index is None:
+            return
+        entry = self._memory_entries[index]
+        text, ok = QInputDialog.getText(self, "Edit memory", "Fact to remember:", text=entry.text)
+        if ok and text.strip():
+            entry.text = text.strip()
+            entry.source = "Edited in Settings"
+            self._refresh_memory_entries()
+
+    def _delete_memory_entry(self) -> None:
+        index = self._selected_memory_index()
+        if index is None:
+            return
+        del self._memory_entries[index]
+        self._refresh_memory_entries()
+
     @staticmethod
     def _pulled_ollama_models(config: Config) -> list[str]:
         from personalai.services.ollama_client import OllamaClient
@@ -299,7 +363,7 @@ class SettingsDialog(QDialog):
                 return
             self._model_pulled()
             return
-        self._set_model_manager_busy(True)
+        self._set_model_manager_busy(True, f"Pulling {model}...")
         self.task_runner.submit(
             client.pull_model, model,
             on_result=lambda _result: self._model_pulled(),
@@ -326,20 +390,22 @@ class SettingsDialog(QDialog):
                 return
             self._refresh_installed_models()
             return
-        self._set_model_manager_busy(True)
+        self._set_model_manager_busy(True, f"Removing {model}...")
         self.task_runner.submit(
             client.delete_model, model,
             on_result=lambda _result: self._model_removed(),
             on_error=self._on_model_action_error,
         )
 
-    def _set_model_manager_busy(self, busy: bool) -> None:
+    def _set_model_manager_busy(self, busy: bool, status: str = "") -> None:
         self._model_action_in_progress = busy
         for widget in (
             self.installed_models, self.refresh_models_btn, self.remove_model_btn,
             self.pull_model_edit, self.pull_model_btn,
         ):
             widget.setEnabled(not busy)
+        self.model_action_status.setText(status)
+        self.model_action_status.setVisible(busy)
 
     def _model_pulled(self) -> None:
         self.pull_model_edit.clear()
@@ -392,6 +458,7 @@ class SettingsDialog(QDialog):
         config.mic_device = None
         config.whisper_model = self.whisper_combo.currentText()
         config.assistant_memory = self.memory_edit.toPlainText().strip()
+        config.memory_entries = self._memory_entries
         config.global_hotkey_enabled = self.global_hotkey_check.isChecked()
 
         self._prompt_texts[self.prompt_task_combo.currentText()] = self.prompt_edit.toPlainText()

@@ -26,6 +26,13 @@ catch {
 }
 
 $envPython = (conda run -n $EnvName python -c "import sys; print(sys.executable)").Trim()
+if ([string]::IsNullOrWhiteSpace($envPython)) {
+    # Conda can occasionally return no captured stdout when this script is
+    # launched from another PowerShell host. The standard named-environment
+    # location is a reliable fallback, and still gets checked below.
+    $condaBase = (conda info --base).Trim()
+    $envPython = Join-Path $condaBase "envs\$EnvName\python.exe"
+}
 if (!(Test-Path $envPython)) {
     Write-Host "ERROR: env '$EnvName' not found - run Install-PersonalAI-Env.ps1 first."
     exit 1

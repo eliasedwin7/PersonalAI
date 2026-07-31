@@ -116,6 +116,21 @@ def test_rename_preserves_messages_and_removes_old_file(tmp_path):
     assert store.load_or_create("storm_draft", "story").messages[0].content == "Open with a storm."
 
 
+def test_search_finds_message_content_across_tasks(tmp_path):
+    store = ConversationStore(tmp_path)
+    general = store.load_or_create("general-notes", "general")
+    general.append("user", "Discuss the gardening plans.")
+    store.save(general)
+    code = store.load_or_create("code-work", "code")
+    code.append("assistant", "Use an indexed search for every conversation.")
+    store.save(code)
+
+    results = store.search("indexed search")
+
+    assert [(result.name, result.task) for result in results] == [("code-work", "code")]
+    assert "indexed search" in results[0].snippet
+
+
 def test_corrupt_conversation_file_raises_user_facing(tmp_path):
     store = ConversationStore(tmp_path)
     (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
