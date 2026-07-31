@@ -15,12 +15,14 @@ event to unblock the worker.
 
 from __future__ import annotations
 
+import subprocess
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -101,7 +103,7 @@ class AgentTab(QWidget):
         left = QWidget()
         self.session_pane = left
         left.setObjectName("sessionPane")
-        left.setMinimumWidth(220)
+        left.setMinimumWidth(190)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(14, 16, 14, 14)
         left_layout.setSpacing(10)
@@ -136,13 +138,22 @@ class AgentTab(QWidget):
         self.workspace_edit = QLineEdit(chat_service.config.agent_workspace or "")
         self.workspace_edit.setPlaceholderText("Folder the agent may read/edit/run commands in")
         top_row.addWidget(self.workspace_edit, stretch=1)
-        self.sessions_toggle_btn = QPushButton("Hide sessions")
+        self.sessions_toggle_btn = QPushButton("‹")
+        self.sessions_toggle_btn.setFixedWidth(34)
         self.sessions_toggle_btn.setToolTip("Minimize or restore agent sessions.")
         self.sessions_toggle_btn.clicked.connect(self._toggle_session_pane)
         top_row.addWidget(self.sessions_toggle_btn)
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self._browse_workspace)
         top_row.addWidget(browse_btn)
+        open_folder_btn = QPushButton("Open folder")
+        open_folder_btn.setToolTip("Open the current workspace in File Explorer.")
+        open_folder_btn.clicked.connect(self._open_workspace_folder)
+        top_row.addWidget(open_folder_btn)
+        open_code_btn = QPushButton("Open in Code")
+        open_code_btn.setToolTip("Open the current workspace in Visual Studio Code.")
+        open_code_btn.clicked.connect(self._open_workspace_in_code)
+        top_row.addWidget(open_code_btn)
 
         layout.addLayout(top_row)
 
@@ -253,7 +264,8 @@ class AgentTab(QWidget):
     def _toggle_session_pane(self) -> None:
         hide = not self.session_pane.isHidden()
         self.session_pane.setVisible(not hide)
-        self.sessions_toggle_btn.setText("Show sessions" if hide else "Hide sessions")
+        self.sessions_toggle_btn.setText("›" if hide else "‹")
+        self.sessions_toggle_btn.setToolTip("Show sessions" if hide else "Hide sessions")
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         self._load_session(item.data(Qt.ItemDataRole.UserRole) or item.text())
@@ -325,6 +337,33 @@ class AgentTab(QWidget):
             self.chat_service.config.agent_workspace = folder
             if self.config_store is not None:
                 self.config_store.save(self.chat_service.config)
+
+    def _open_workspace_folder(self) -> None:
+        workspace = self._workspace_path()
+        if workspace is None:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(workspace)))
+
+    def _open_workspace_in_code(self) -> None:
+        workspace = self._workspace_path()
+        if workspace is None:
+            return
+        for command in ("code", "code.cmd"):
+            try:
+                subprocess.Popen(
+                    [command, str(workspace)],
+                    cwd=str(workspace),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return
+            except OSError:
+                continue
+        QMessageBox.warning(
+            self,
+            "Open in Code",
+            "Could not find the VS Code 'code' command. Install it from VS Code's Command Palette: Shell Command: Install 'code' command in PATH.",
+        )
 
     def _current_mode(self) -> AgentMode:
         try:

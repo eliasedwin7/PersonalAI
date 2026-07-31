@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import threading
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -104,12 +105,14 @@ def test_chat_tab_session_pane_can_be_minimized(qtbot, chat_service, task_runner
     tab._toggle_session_pane()
 
     assert tab.session_pane.isHidden()
-    assert tab.sessions_toggle_btn.text() == "Show sessions"
+    assert tab.sessions_toggle_btn.text() == "›"
+    assert tab.sessions_toggle_btn.toolTip() == "Show sessions"
 
     tab._toggle_session_pane()
 
     assert not tab.session_pane.isHidden()
-    assert tab.sessions_toggle_btn.text() == "Hide sessions"
+    assert tab.sessions_toggle_btn.text() == "‹"
+    assert tab.sessions_toggle_btn.toolTip() == "Hide sessions"
 
 
 def test_chat_tab_send_appends_transcript_and_saves(qtbot, chat_service, task_runner):
@@ -524,7 +527,8 @@ def test_voice_tab_session_pane_can_be_minimized(qtbot, chat_service, task_runne
     tab._toggle_session_pane()
 
     assert tab.session_pane.isHidden()
-    assert tab.sessions_toggle_btn.text() == "Show sessions"
+    assert tab.sessions_toggle_btn.text() == "›"
+    assert tab.sessions_toggle_btn.toolTip() == "Show sessions"
 
 
 def test_voice_tab_full_turn_transcribes_replies_and_speaks(
@@ -801,7 +805,8 @@ def test_caption_tab_session_pane_can_be_minimized(qtbot, chat_service, task_run
     tab._toggle_session_pane()
 
     assert tab.session_pane.isHidden()
-    assert tab.sessions_toggle_btn.text() == "Show sessions"
+    assert tab.sessions_toggle_btn.text() == "›"
+    assert tab.sessions_toggle_btn.toolTip() == "Show sessions"
 
 
 def test_caption_tab_has_its_own_image_sessions(qtbot, chat_service, task_runner, monkeypatch):
@@ -1236,7 +1241,41 @@ def test_agent_tab_session_pane_can_be_minimized(qtbot, chat_service, task_runne
     tab._toggle_session_pane()
 
     assert tab.session_pane.isHidden()
-    assert tab.sessions_toggle_btn.text() == "Show sessions"
+    assert tab.sessions_toggle_btn.text() == "›"
+    assert tab.sessions_toggle_btn.toolTip() == "Show sessions"
+
+
+def test_agent_tab_workspace_actions_open_folder_and_code(
+    qtbot, chat_service, task_runner, tmp_path, monkeypatch
+):
+    from personalai.ui import agent_tab as agent_tab_mod
+    from personalai.ui.agent_tab import AgentTab
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    opened_urls = []
+    opened_code = []
+
+    monkeypatch.setattr(
+        agent_tab_mod.QDesktopServices,
+        "openUrl",
+        lambda url: opened_urls.append(url.toLocalFile()) or True,
+    )
+    monkeypatch.setattr(
+        agent_tab_mod.subprocess,
+        "Popen",
+        lambda command, cwd=None, stdout=None, stderr=None: opened_code.append((command, cwd)),
+    )
+
+    tab = AgentTab(chat_service, task_runner)
+    qtbot.addWidget(tab)
+    tab.workspace_edit.setText(str(workspace))
+
+    tab._open_workspace_folder()
+    tab._open_workspace_in_code()
+
+    assert [Path(path) for path in opened_urls] == [workspace]
+    assert opened_code == [(["code", str(workspace)], str(workspace))]
 
 
 def test_system_tab_shows_onboarding_checklist(qtbot, chat_service, task_runner, tmp_path):

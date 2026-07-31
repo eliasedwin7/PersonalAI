@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         self._restore_geometry()
 
         self._build_workspace()
+        self._fit_to_available_screen()
         self._build_shortcuts()
 
         self.status_label = QLabel(f"{chat_service.config.backend}: checking…")
@@ -261,6 +262,25 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(base64.b64decode(b64))
         except (ValueError, TypeError):
             pass  # corrupted/old value - just keep the default size
+
+    def _fit_to_available_screen(self) -> None:
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        target_width = min(self.width(), available.width())
+        target_height = min(self.height(), available.height())
+        if target_width != self.width() or target_height != self.height():
+            self.resize(max(900, target_width), max(620, target_height))
+        frame = self.frameGeometry()
+        x = available.left() if frame.width() >= available.width() else min(
+            max(frame.x(), available.left()), available.right() - frame.width() + 1
+        )
+        y = available.top() if frame.height() >= available.height() else min(
+            max(frame.y(), available.top()), available.bottom() - frame.height() + 1
+        )
+        if frame.x() != x or frame.y() != y:
+            self.move(x, y)
 
     def _save_geometry(self) -> None:
         raw = bytes(self.saveGeometry())

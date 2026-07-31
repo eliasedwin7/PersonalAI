@@ -154,7 +154,7 @@ class VoiceTab(QWidget):
         left = QWidget()
         self.session_pane = left
         left.setObjectName("sessionPane")
-        left.setMinimumWidth(220)
+        left.setMinimumWidth(190)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(14, 16, 14, 14)
         left_layout.setSpacing(10)
@@ -189,7 +189,8 @@ class VoiceTab(QWidget):
         title.setObjectName("pageTitle")
         title_row.addWidget(title)
         title_row.addStretch(1)
-        self.sessions_toggle_btn = QPushButton("Hide sessions")
+        self.sessions_toggle_btn = QPushButton("‹")
+        self.sessions_toggle_btn.setFixedWidth(34)
         self.sessions_toggle_btn.setToolTip("Minimize or restore the voice session list.")
         self.sessions_toggle_btn.clicked.connect(self._toggle_session_pane)
         title_row.addWidget(self.sessions_toggle_btn)
@@ -287,7 +288,8 @@ class VoiceTab(QWidget):
     def _toggle_session_pane(self) -> None:
         hide = not self.session_pane.isHidden()
         self.session_pane.setVisible(not hide)
-        self.sessions_toggle_btn.setText("Show sessions" if hide else "Hide sessions")
+        self.sessions_toggle_btn.setText("›" if hide else "‹")
+        self.sessions_toggle_btn.setToolTip("Show sessions" if hide else "Hide sessions")
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         if self._state != "idle":

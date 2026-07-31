@@ -86,7 +86,7 @@ class MemoryApprovalDialog(QDialog):
     def __init__(self, suggestions: list[str], parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Review memory")
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(320)
         layout = QVBoxLayout(self)
         note = QLabel("Select only the facts Nexus should remember in future chats.")
         note.setWordWrap(True)
@@ -134,7 +134,7 @@ class ChatTab(QWidget):
         left = QWidget()
         self.session_pane = left
         left.setObjectName("sessionPane")
-        left.setMinimumWidth(220)
+        left.setMinimumWidth(190)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(14, 16, 14, 14)
         left_layout.setSpacing(10)
@@ -177,7 +177,8 @@ class ChatTab(QWidget):
         self.conversation_title.setObjectName("paneTitle")
         top_row.addWidget(self.conversation_title)
         top_row.addStretch(1)
-        self.sessions_toggle_btn = QPushButton("Hide sessions")
+        self.sessions_toggle_btn = QPushButton("‹")
+        self.sessions_toggle_btn.setFixedWidth(34)
         self.sessions_toggle_btn.setToolTip("Minimize or restore the chat session list.")
         self.sessions_toggle_btn.clicked.connect(self._toggle_session_pane)
         top_row.addWidget(self.sessions_toggle_btn)
@@ -366,7 +367,8 @@ class ChatTab(QWidget):
     def _toggle_session_pane(self) -> None:
         hide = not self.session_pane.isHidden()
         self.session_pane.setVisible(not hide)
-        self.sessions_toggle_btn.setText("Show sessions" if hide else "Hide sessions")
+        self.sessions_toggle_btn.setText("›" if hide else "‹")
+        self.sessions_toggle_btn.setToolTip("Show sessions" if hide else "Hide sessions")
 
     def _on_session_selected(self, item: QListWidgetItem) -> None:
         result = item.data(Qt.ItemDataRole.UserRole)
