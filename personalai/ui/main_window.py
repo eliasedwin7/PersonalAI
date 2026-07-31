@@ -10,6 +10,7 @@ window moves it to the system tray, and closing it exits cleanly.
 from __future__ import annotations
 
 import base64
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QTimer
@@ -37,6 +38,8 @@ from personalai.ui.chat_tab import ChatTab
 from personalai.ui.images_page import ImagesPage
 from personalai.ui.knowledge_tab import KnowledgeTab
 from personalai.ui.settings_dialog import SettingsDialog
+from personalai.ui.setup_wizard import SetupWizard
+from personalai.ui.system_tab import SystemTab
 from personalai.ui.voice_tab import VoiceTab
 from personalai.ui.workers import TaskRunner
 
@@ -72,6 +75,11 @@ class MainWindow(QMainWindow):
         self.tray: QSystemTrayIcon | None = None
         if QSystemTrayIcon.isSystemTrayAvailable():
             self._build_tray()
+        if (
+            not self.chat_service.config.setup_completed
+            and os.environ.get("QT_QPA_PLATFORM") != "offscreen"
+        ):
+            QTimer.singleShot(350, self._maybe_show_setup)
 
     def _build_workspace(self) -> None:
         shell = QWidget()
@@ -90,7 +98,7 @@ class MainWindow(QMainWindow):
         app_bar_layout.addWidget(brand)
         self.navigation = QTabBar()
         self.navigation.setObjectName("navigation")
-        for label in ("Chat", "Voice", "Knowledge", "Images", "Agent"):
+        for label in ("Chat", "Voice", "Knowledge", "Images", "Agent", "System"):
             self.navigation.addTab(label)
         self.navigation.currentChanged.connect(self._select_page)
         app_bar_layout.addWidget(self.navigation)
@@ -106,12 +114,17 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.chat_tab = ChatTab(self.chat_service, self.task_runner, self.config_store)
         self.voice_tab = VoiceTab(self.chat_service, self.task_runner, self.config_store)
+        self.voice_tab.command_requested.connect(self._handle_app_command)
         self.knowledge_tab = KnowledgeTab(self.chat_service, self.task_runner, self.config_store)
         self.images_page = ImagesPage(self.chat_service, self.task_runner)
         self.caption_tab = self.images_page.caption_tab
         self.image_tab = self.images_page.image_tab
         self.agent_tab = AgentTab(self.chat_service, self.task_runner, self.config_store)
-        for page in (self.chat_tab, self.voice_tab, self.knowledge_tab, self.images_page, self.agent_tab):
+        self.system_tab = SystemTab(self.chat_service, self.task_runner, self.config_store)
+        for page in (
+            self.chat_tab, self.voice_tab, self.knowledge_tab, self.images_page,
+            self.agent_tab, self.system_tab,
+        ):
             self.pages.addWidget(page)
         shell_layout.addWidget(self.pages, stretch=1)
         self.setCentralWidget(shell)
@@ -121,6 +134,13 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
         self.pages.setCurrentIndex(index)
+
+    def select_page(self, label: str) -> bool:
+        for index in range(self.navigation.count()):
+            if self.navigation.tabText(index).casefold() == label.casefold():
+                self.navigation.setCurrentIndex(index)
+                return True
+        return False
 
     # ---- window geometry (remembered across restarts) ----
 
@@ -157,6 +177,27 @@ class MainWindow(QMainWindow):
             self.image_tab._check_health()
             if self.hotkey_manager is not None:
                 self.hotkey_manager.configure(self.chat_service.config.global_hotkey_enabled)
+
+    def _maybe_show_setup(self) -> None:
+        dialog = SetupWizard(self.chat_service.config, self.config_store, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            if self.hotkey_manager is not None:
+                self.hotkey_manager.configure(self.chat_service.config.global_hotkey_enabled)
+            self.chat_tab._update_model_label()
+            self.system_tab._refresh_hardware()
+
+    def _handle_app_command(self, command) -> None:
+        if command.action == "select_page":
+            self.select_page(command.target)
+        elif command.action == "open_settings":
+            self._open_settings()
+        elif command.action == "new_chat":
+            self.select_page("Chat")
+            self.chat_tab.start_quick_session()
+        elif command.action == "test_microphone":
+            self.select_page("Voice")
+            self.voice_tab._test_microphone()
+        self.voice_tab.show_command_response(command.response)
 
     def set_hotkey_manager(self, manager) -> None:
         self.hotkey_manager = manager

@@ -232,6 +232,16 @@ class SettingsDialog(QDialog):
         note.setWordWrap(True)
         note.setObjectName("mutedLabel")
         form.addRow(note)
+
+        self.voice_commands_check = QCheckBox("Handle local voice commands")
+        self.voice_commands_check.setChecked(config.voice_commands_enabled)
+        self.voice_commands_check.setToolTip(
+            "Examples: 'Nexus open settings', 'Nexus go to knowledge', 'Nexus test microphone'."
+        )
+        form.addRow("Commands:", self.voice_commands_check)
+        self.wake_word_edit = QLineEdit(config.voice_wake_word)
+        self.wake_word_edit.setToolTip("Word Nexus listens for at the start of local voice commands.")
+        form.addRow("Wake word:", self.wake_word_edit)
         self.tabs.addTab(page, "Voice")
 
     def _build_assistant_tab(self, config: Config) -> None:
@@ -254,7 +264,7 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(QLabel("Approved memory"))
         self._memory_entries = [
-            MemoryEntry(entry.text, entry.created_at, entry.source)
+            MemoryEntry(entry.text, entry.created_at, entry.source, entry.category)
             for entry in config.memory_entries
         ]
         self.memory_list = QListWidget()
@@ -544,6 +554,8 @@ class SettingsDialog(QDialog):
         config.history_char_limit = self.history_limit_spin.value()
         config.mic_device = None
         config.whisper_model = self.whisper_combo.currentText()
+        config.voice_commands_enabled = self.voice_commands_check.isChecked()
+        config.voice_wake_word = self.wake_word_edit.text().strip() or "nexus"
         config.assistant_memory = self.memory_edit.toPlainText().strip()
         config.memory_entries = self._memory_entries
         config.apply_local_profile(self.profile_combo.currentData())

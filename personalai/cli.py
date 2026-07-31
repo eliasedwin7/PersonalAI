@@ -502,6 +502,12 @@ def cmd_config_show(args: argparse.Namespace) -> int:
     print(f"read_replies_aloud  = {config.read_replies_aloud}")
     print(f"assistant_memory    = {config.assistant_memory or '(not set)'}")
     print(f"global_hotkey      = {'Ctrl+Alt+N' if config.global_hotkey_enabled else '(off)'}")
+    print(f"setup_completed    = {config.setup_completed}")
+    print(f"local_model_profile = {config.local_model_profile}")
+    print(f"intelligent_routing = {config.intelligent_routing}")
+    print(f"unload_models_after_reply = {config.unload_models_after_reply}")
+    print(f"voice_commands_enabled = {config.voice_commands_enabled}")
+    print(f"voice_wake_word    = {config.voice_wake_word}")
     print(f"agent_workspace     = {config.agent_workspace or '(not set)'}")
     print(f"agent_mode          = {config.agent_mode}")
     print(f"forge_url           = {config.forge_url}")
@@ -578,6 +584,35 @@ def cmd_config_set(args: argparse.Namespace) -> int:
             print("global_hotkey_enabled must be 'true' or 'false'.", file=sys.stderr)
             return 1
         config.global_hotkey_enabled = value.lower() == "true"
+    elif key == "setup_completed":
+        if value.lower() not in ("true", "false"):
+            print("setup_completed must be 'true' or 'false'.", file=sys.stderr)
+            return 1
+        config.setup_completed = value.lower() == "true"
+    elif key == "local_model_profile":
+        if value not in config_mod.LOCAL_MODEL_PROFILES:
+            print(f"Unknown local_model_profile '{value}' (expected one of: "
+                  f"{', '.join(config_mod.LOCAL_MODEL_PROFILES)}).", file=sys.stderr)
+            return 1
+        config.apply_local_profile(value)
+        config.setup_completed = True
+    elif key == "intelligent_routing":
+        if value.lower() not in ("true", "false"):
+            print("intelligent_routing must be 'true' or 'false'.", file=sys.stderr)
+            return 1
+        config.intelligent_routing = value.lower() == "true"
+    elif key == "unload_models_after_reply":
+        if value.lower() not in ("true", "false"):
+            print("unload_models_after_reply must be 'true' or 'false'.", file=sys.stderr)
+            return 1
+        config.unload_models_after_reply = value.lower() == "true"
+    elif key == "voice_commands_enabled":
+        if value.lower() not in ("true", "false"):
+            print("voice_commands_enabled must be 'true' or 'false'.", file=sys.stderr)
+            return 1
+        config.voice_commands_enabled = value.lower() == "true"
+    elif key == "voice_wake_word":
+        config.voice_wake_word = value.strip() or "nexus"
     elif key == "read_replies_aloud":
         if value.lower() not in ("true", "false"):
             print("read_replies_aloud must be 'true' or 'false'.", file=sys.stderr)
@@ -622,7 +657,9 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         print(f"Unknown setting '{key}'. Try: backend, ollama_url, openai_base_url, "
               "airllm_max_new_tokens, context_char_limit, history_char_limit, "
               "mic_device, whisper_model, read_replies_aloud, agent_workspace, "
-              "assistant_memory, global_hotkey_enabled, "
+              "assistant_memory, global_hotkey_enabled, setup_completed, "
+              "local_model_profile, intelligent_routing, unload_models_after_reply, "
+              "voice_commands_enabled, voice_wake_word, "
               "agent_mode, forge_url, image_save_dir, models.general, models.story, "
               "models.code, models.vision, "
               "prompts.general, prompts.story, prompts.code, prompts.vision "

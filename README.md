@@ -55,12 +55,15 @@ management, all a window on top of the exact same
 `ChatService`/`ConversationStore` the CLI uses, so a session started
 with `myai story` shows up there too, and vice versa.
 
-The desktop workspace groups work into Chat, Voice, Knowledge, Images, and Agent.
+The desktop workspace groups work into Chat, Voice, Knowledge, Images, Agent,
+and System.
 Voice uses your Windows default microphone, with a live input level and a
 short test so a silent or incorrectly routed device is visible before
-transcription starts. Chat has session search, safe response regeneration,
-and an editable personal-memory field in Settings. Personal memory is only
-what you explicitly type; it is never inferred from conversations.
+transcription starts. It also handles local voice commands like "Nexus open
+settings", "Nexus go to knowledge", and "Nexus test microphone" without sending
+those commands to a model. Chat has session search, safe response regeneration,
+and approval-based persistent memory. The System page applies hardware profiles,
+installs recommended Ollama models, and benchmarks local model speed.
 
 ## Quick start
 
@@ -71,7 +74,8 @@ what you explicitly type; it is never inferred from conversations.
 powershell -ExecutionPolicy Bypass -File Install-PersonalAI-Env.ps1 -Dev
 
 # 3. Open Nexus, then Settings > Models > choose your hardware profile
-#    and select Install recommended. It downloads the local models once.
+#    or use the first-run/System setup. Install recommended downloads
+#    the local models once.
 conda run -n personalai myai gui
 ```
 
@@ -309,6 +313,9 @@ personalai/
                             commands, gated by plan/auto/manual
     image_service.py        ForgeClient - txt2img/img2img via Stable
                             Diffusion Forge's REST API
+    benchmark_service.py    local model timing used by the System page
+    setup_service.py        first-run hardware/profile recommendation
+    command_service.py      local voice/app commands that bypass the LLM
   gui_main.py             bare GUI entry point (no argparse) - used by
                           the frozen .exe and Run-PersonalAI-GUI.bat
   ui/                     desktop GUI (`myai gui`) - a thin layer over
@@ -384,6 +391,14 @@ needing a real Ollama server running.
   with elapsed-time feedback, pull or remove local Ollama models in
   Settings, export a ZIP backup of conversations and approved memory, and
   optionally open Nexus globally with `Ctrl+Alt+N` on Windows.
+- ✅ **First-run setup and System tuning** — Nexus detects basic system
+  capability, applies a local hardware profile, installs recommended Ollama
+  models, and benchmarks fast/general/deep model speed from the desktop app.
+- ✅ **Local voice commands** — spoken commands such as "Nexus open settings",
+  "Nexus go to knowledge", and "Nexus test microphone" are handled directly by
+  the app instead of spending a model request.
+- ✅ **Portable bundle helper** — `Prepare-Nexus-Portable.ps1` builds the EXE
+  bundle and writes a short target-PC setup note beside `Nexus.exe`.
 - ✅ **Long-conversation history trimming** — a session's full history
   used to get resent on every single turn forever; past
   `history_char_limit` (config or Settings), the oldest turns are

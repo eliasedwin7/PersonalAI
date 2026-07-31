@@ -821,6 +821,23 @@ def test_settings_dialog_whisper_model_saves(qtbot, tmp_path):
     assert reloaded.whisper_model == "small.en"
 
 
+def test_settings_dialog_voice_command_settings_save(qtbot, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.ui.settings_dialog import SettingsDialog
+
+    store = ConfigStore(tmp_path / "config.json")
+    dialog = SettingsDialog(store.load(), store)
+    qtbot.addWidget(dialog)
+
+    dialog.voice_commands_check.setChecked(False)
+    dialog.wake_word_edit.setText("friday")
+    dialog._save()
+
+    reloaded = ConfigStore(tmp_path / "config.json").load()
+    assert reloaded.voice_commands_enabled is False
+    assert reloaded.voice_wake_word == "friday"
+
+
 def test_settings_dialog_never_exposes_an_api_key_field(qtbot, tmp_path):
     """Regression guard for the "env var only" design decision - a
     QLineEdit meant for typing a raw key would be a real mistake here."""
@@ -867,12 +884,26 @@ def test_main_window_constructs_with_focused_workspaces(qtbot, chat_service, tmp
 
     window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
     qtbot.addWidget(window)
-    assert window.pages.count() == 5
+    assert window.pages.count() == 6
     assert [window.navigation.tabText(i) for i in range(window.navigation.count())] == [
-        "Chat", "Voice", "Knowledge", "Images", "Agent"
+        "Chat", "Voice", "Knowledge", "Images", "Agent", "System"
     ]
     assert window.images_page.tabs.tabText(0) == "Describe"
     assert window.images_page.tabs.tabText(1) == "Generate"
+
+
+def test_main_window_handles_voice_navigation_command(qtbot, chat_service, tmp_path):
+    from personalai.core.config import ConfigStore
+    from personalai.services.command_service import AppCommand
+    from personalai.ui.main_window import MainWindow
+
+    chat_service.config.setup_completed = True
+    window = MainWindow(chat_service, ConfigStore(tmp_path / "config.json"))
+    qtbot.addWidget(window)
+
+    window._handle_app_command(AppCommand("select_page", "Knowledge", "Opening Knowledge."))
+
+    assert window.navigation.tabText(window.navigation.currentIndex()) == "Knowledge"
 
 
 def test_main_window_remembers_geometry_across_restarts(

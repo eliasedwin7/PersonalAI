@@ -12,6 +12,7 @@ outline and just read the reply, without a mic button in the way.
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -354,11 +355,18 @@ class ChatTab(QWidget):
         name, ok = QInputDialog.getText(self, "New session", "Session name:")
         if not ok or not name.strip():
             return
+        self.start_session(name.strip())
+
+    def start_session(self, name: str) -> None:
         task = self.task_combo.currentText()
-        self.conversation = self.chat_service.store.load_or_create(name.strip(), task)
+        self.conversation = self.chat_service.store.load_or_create(name, task)
         self.chat_service.store.save(self.conversation)
         self._reload_sessions()
         self._render_transcript()
+
+    def start_quick_session(self) -> None:
+        self.task_combo.setCurrentText("general")
+        self.start_session("chat_" + datetime.now(UTC).strftime("%Y%m%d_%H%M%S"))
 
     def _clear_current_session(self) -> None:
         if self.conversation is None or not self.conversation.messages:

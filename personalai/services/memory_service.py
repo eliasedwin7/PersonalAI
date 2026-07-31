@@ -61,6 +61,19 @@ def add_approved_entries(entries: list[MemoryEntry], approved: Iterable[str]) ->
     for fact in approved:
         clean = re.sub(r"\s+", " ", fact).strip(" -\t\r\n")
         if clean and clean.casefold() not in known:
-            entries.append(MemoryEntry(text=clean))
+            entries.append(MemoryEntry(text=clean, category=categorize_memory(clean)))
             known.add(clean.casefold())
     return entries
+
+
+def categorize_memory(text: str) -> str:
+    lower = text.casefold()
+    if any(word in lower for word in ("prefer", "likes", "dislikes", "wants", "style")):
+        return "preferences"
+    if any(word in lower for word in ("project", "working on", "building", "developing")):
+        return "projects"
+    if any(word in lower for word in ("call the user", "name is", "lives in", "works as")):
+        return "profile"
+    if any(word in lower for word in ("remember to", "needs to", "todo", "task")):
+        return "tasks"
+    return "general"

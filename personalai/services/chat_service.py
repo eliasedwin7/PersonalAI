@@ -104,14 +104,18 @@ class ChatService:
             chunks = self.knowledge_store.search(query, limit=self.config.knowledge_result_count)
         return "\n\n".join(f"[{chunk.source}]\n{chunk.text}" for chunk in chunks)
 
-    def _model_for(self, task: str, message: str, deep_thinking: bool) -> str:
+    def _route_for(self, task: str, message: str, deep_thinking: bool) -> tuple[str, str]:
         if deep_thinking:
-            return self.config.deep_model or self.config.model_for(task)
+            return task, self.config.deep_model or self.config.model_for(task)
         if task != "general" or not self.config.intelligent_routing:
-            return self.config.model_for(task)
+            return task, self.config.model_for(task)
+        if _looks_like_code_request(message):
+            return "code", self.config.model_for("code")
+        if _looks_like_writing_request(message):
+            return "story", self.config.model_for("story")
         if self.config.fast_model and _looks_simple(message):
-            return self.config.fast_model
-        return self.config.model_for(task)
+            return task, self.config.fast_model
+        return task, self.config.model_for(task)
 
     def send(
         self,
@@ -123,10 +127,10 @@ class ChatService:
         """Append the user's message, call Ollama with the full history,
         append and save the reply. Returns the reply text."""
         conversation.append("user", user_message)
-        model = self._model_for(conversation.task, user_message, deep_thinking)
+        prompt_task, model = self._route_for(conversation.task, user_message, deep_thinking)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.memory_context(),
+                prompt_task, self.config.system_prompts, self.config.memory_context(),
                 self._knowledge_context(user_message), deep_thinking,
             ),
             char_limit=self.config.history_char_limit)
@@ -212,10 +216,10 @@ class ChatService:
         if not conversation.messages or conversation.messages[-1].role != "user":
             raise UserFacingError("There is no user message ready to regenerate.")
         request = conversation.messages[-1].content
-        model = self._model_for(conversation.task, request, deep_thinking)
+        prompt_task, model = self._route_for(conversation.task, request, deep_thinking)
         messages = conversation.as_ollama_messages(
             system_prompt_for(
-                conversation.task, self.config.system_prompts, self.config.memory_context(),
+                prompt_task, self.config.system_prompts, self.config.memory_context(),
                 self._knowledge_context(request), deep_thinking,
             ),
             char_limit=self.config.history_char_limit,
@@ -231,3 +235,22 @@ def _looks_simple(message: str) -> bool:
     lower = message.casefold()
     deep_terms = ("plan", "compare", "analyse", "analyze", "debug", "design", "why", "prove", "step by step")
     return len(message) < 220 and not any(term in lower for term in deep_terms)
+
+
+def _looks_like_code_request(message: str) -> bool:
+    lower = message.casefold()
+    cues = (
+        "python", "javascript", "typescript", "powershell", "traceback", "stack trace",
+        "bug", "debug", "function", "class ", "api", "refactor", "unit test", "pytest",
+        "build error", "compile", "exception", "importerror",
+    )
+    return any(cue in lower for cue in cues) or "```" in message
+
+
+def _looks_like_writing_request(message: str) -> bool:
+    lower = message.casefold()
+    cues = (
+        "story", "chapter", "scene", "dialogue", "character", "worldbuilding",
+        "rewrite", "draft", "tone", "prose", "fiction",
+    )
+    return any(cue in lower for cue in cues)

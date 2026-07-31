@@ -115,6 +115,22 @@ def test_send_routes_simple_chat_to_fast_model_and_deep_chat_to_deep_model(tmp_p
     assert [model for _messages, model in client.calls] == ["fast", "deep"]
 
 
+def test_general_chat_routes_clear_code_and_writing_requests_to_specialized_models(tmp_path):
+    config = Config(
+        models={"general": "normal", "story": "story-model", "code": "code-model"},
+        fast_model="fast",
+    )
+    client = FakeOllamaClient()
+    service = ChatService(config=config, store=ConversationStore(tmp_path), client=client)
+
+    service.send(service.store.load_or_create("general", "general"), "debug this Python traceback")
+    service.send(service.store.load_or_create("general", "general"), "rewrite this chapter dialogue")
+
+    assert [model for _messages, model in client.calls] == ["code-model", "story-model"]
+    assert SYSTEM_PROMPTS["code"] in client.calls[0][0][0]["content"]
+    assert SYSTEM_PROMPTS["story"] in client.calls[1][0][0]["content"]
+
+
 def test_send_includes_system_prompt_matching_task(tmp_path):
     config = Config()
     client = FakeOllamaClient()

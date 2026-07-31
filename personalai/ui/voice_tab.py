@@ -31,6 +31,7 @@ from personalai.core.conversation import Conversation
 from personalai.core.errors import PersonalAIError
 from personalai.services import voice_service
 from personalai.services.chat_service import ChatService
+from personalai.services.command_service import parse_app_command
 from personalai.ui import transcript_view
 from personalai.ui.workers import TaskRunner
 
@@ -119,6 +120,8 @@ class VoiceOrb(QWidget):
 
 
 class VoiceTab(QWidget):
+    command_requested = Signal(object)
+
     def __init__(self, chat_service: ChatService, task_runner: TaskRunner,
                 config_store=None) -> None:
         super().__init__()
@@ -285,6 +288,19 @@ class VoiceTab(QWidget):
         if not text:
             self._set_state("idle")
             return
+        command = parse_app_command(
+            text,
+            self.chat_service.config.voice_wake_word,
+            self.chat_service.config.voice_commands_enabled,
+        )
+        if command is not None:
+            transcript_view.append_role_label(self.transcript, "user")
+            transcript_view.append_body(self.transcript, text + "\n\n")
+            transcript_view.append_role_label(self.transcript, "assistant")
+            transcript_view.append_body(self.transcript, command.response + "\n\n")
+            self.command_requested.emit(command)
+            self._set_state("idle")
+            return
         transcript_view.append_role_label(self.transcript, "user")
         transcript_view.append_body(self.transcript, text + "\n\n")
         transcript_view.append_role_label(self.transcript, "assistant")
@@ -360,3 +376,6 @@ class VoiceTab(QWidget):
         self.chat_service.config.read_replies_aloud = checked
         if self.config_store is not None:
             self.config_store.save(self.chat_service.config)
+
+    def show_command_response(self, text: str) -> None:
+        self.status_label.setText(text)

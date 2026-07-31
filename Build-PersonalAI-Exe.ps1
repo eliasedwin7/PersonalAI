@@ -25,13 +25,50 @@ catch {
     exit 1
 }
 
-$envPython = (conda run -n $EnvName python -c "import sys; print(sys.executable)").Trim()
+$envPythonRaw = conda run -n $EnvName python -c "import sys; print(sys.executable)"
+$envPython = ($envPythonRaw | Where-Object {
+    $_ -and ![string]::IsNullOrWhiteSpace($_.ToString())
+} | Select-Object -First 1)
+if ($null -ne $envPython) {
+    $envPython = $envPython.ToString().Trim()
+} else {
+    $envPython = ""
+}
 if ([string]::IsNullOrWhiteSpace($envPython)) {
     # Conda can occasionally return no captured stdout when this script is
     # launched from another PowerShell host. The standard named-environment
     # location is a reliable fallback, and still gets checked below.
-    $condaBase = (conda info --base).Trim()
-    $envPython = Join-Path $condaBase "envs\$EnvName\python.exe"
+    $condaBaseRaw = conda info --base
+    $condaBase = ($condaBaseRaw | Where-Object {
+        $_ -and ![string]::IsNullOrWhiteSpace($_.ToString())
+    } | Select-Object -First 1)
+    if ($null -ne $condaBase) {
+        $condaBase = $condaBase.ToString().Trim()
+    } else {
+        $condaBase = ""
+    }
+    if (![string]::IsNullOrWhiteSpace($condaBase)) {
+        $envPython = Join-Path $condaBase "envs\$EnvName\python.exe"
+    }
+}
+if ([string]::IsNullOrWhiteSpace($envPython)) {
+    $userProfile = [Environment]::GetFolderPath("UserProfile")
+    $candidates = @()
+    if (![string]::IsNullOrWhiteSpace($userProfile)) {
+        $candidates += (Join-Path $userProfile "anaconda3\envs\$EnvName\python.exe")
+        $candidates += (Join-Path $userProfile "miniconda3\envs\$EnvName\python.exe")
+    }
+    $candidates += "C:\Users\Edwin\anaconda3\envs\$EnvName\python.exe"
+    foreach ($candidate in $candidates) {
+        if (![string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+            $envPython = $candidate
+            break
+        }
+    }
+}
+if ([string]::IsNullOrWhiteSpace($envPython)) {
+    Write-Host "ERROR: env '$EnvName' not found - run Install-PersonalAI-Env.ps1 first."
+    exit 1
 }
 if (!(Test-Path $envPython)) {
     Write-Host "ERROR: env '$EnvName' not found - run Install-PersonalAI-Env.ps1 first."

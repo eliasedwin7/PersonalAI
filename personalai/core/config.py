@@ -93,6 +93,7 @@ class MemoryEntry:
     text: str
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
     source: str = "Approved from chat"
+    category: str = "general"
 
 
 @dataclass
@@ -145,6 +146,9 @@ class Config:
     unload_models_after_reply: bool = True  # return GPU VRAM to Forge / ComfyUI after each reply
     agent_verify_changes: bool = False
     global_hotkey_enabled: bool = False  # Windows only: Ctrl+Alt+N shows Nexus from the tray
+    setup_completed: bool = False  # first-run setup wizard has applied a hardware profile
+    voice_commands_enabled: bool = True  # local "Nexus open settings" style commands
+    voice_wake_word: str = "nexus"
     system_prompts: dict[str, str] = field(default_factory=dict)  # task -> override text;
                                        # a task absent here just uses chat_service.SYSTEM_PROMPTS'
                                        # built-in default, so this dict stays empty until someone
@@ -156,9 +160,14 @@ class Config:
     def memory_context(self) -> str:
         """Combine old free-form notes with individually approved facts."""
         sections = [self.assistant_memory.strip()] if self.assistant_memory.strip() else []
-        entries = [f"- {entry.text}" for entry in self.memory_entries if entry.text.strip()]
-        if entries:
-            sections.append("\n".join(entries))
+        grouped: dict[str, list[str]] = {}
+        for entry in self.memory_entries:
+            if not entry.text.strip():
+                continue
+            category = (entry.category or "general").strip().title()
+            grouped.setdefault(category, []).append(f"- {entry.text}")
+        for category in sorted(grouped):
+            sections.append(f"{category}:\n" + "\n".join(grouped[category]))
         return "\n".join(sections)
 
     def apply_local_profile(self, profile: str) -> None:

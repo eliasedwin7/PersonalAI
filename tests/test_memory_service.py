@@ -34,3 +34,4 @@ def test_add_approved_entries_keeps_individual_history_and_deduplicates():
 
     assert [entry.text for entry in entries] == ["Call the user Edwin.", "Prefers concise answers."]
     assert entries[1].source == "Approved from chat"
+    assert entries[1].category == "preferences"
